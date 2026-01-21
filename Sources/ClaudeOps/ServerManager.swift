@@ -203,7 +203,7 @@ class ServerManager: ObservableObject {
 
     private func getWorkingDirectory() -> String {
         // Check common locations for the config files
-        let candidates = [
+        let candidates: [String] = [
             // Application Support directory (preferred for bundled apps)
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
                 .appendingPathComponent("ClaudeOps").path,
