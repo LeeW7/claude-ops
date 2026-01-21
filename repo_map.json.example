@@ -1,0 +1,4 @@
+{
+  "/path/to/your/local/repo": "https://github.com/YOUR_USERNAME/your-repo-name",
+  "/Users/yourusername/Projects/another-project": "https://github.com/YOUR_USERNAME/another-project"
+}

@@ -1,0 +1,31 @@
+# Xcode
+.DS_Store
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Secrets - do not commit
+service-account.json
+repo_map.json
+.env
+
+# Runtime data - do not commit
+jobs.json
+
+# Binaries
+*.dmg
+*.app
+
+# Logs
+*.log
+
+# IDE
+.idea/
+.vscode/
