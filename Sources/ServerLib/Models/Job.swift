@@ -2,7 +2,7 @@ import Vapor
 import Foundation
 
 /// Job status values
-public enum JobStatus: String, Codable, CaseIterable {
+public enum JobStatus: String, Codable, CaseIterable, Sendable {
     case pending
     case running
     case completed
@@ -78,6 +78,9 @@ public struct Job: Content, Identifiable, Hashable, Equatable {
     /// Error message if job failed
     public var error: String?
 
+    /// Cost information for this job
+    public var cost: JobCost?
+
     /// Timestamp when created
     public let createdAt: Date
 
@@ -125,6 +128,7 @@ public struct Job: Content, Identifiable, Hashable, Equatable {
         case localPath = "local_path"
         case fullCommand = "full_command"
         case error
+        case cost
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }

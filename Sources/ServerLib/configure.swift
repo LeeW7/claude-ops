@@ -1,6 +1,4 @@
 import Vapor
-import FirebaseCore
-import FirebaseFirestore
 
 /// Called before your application initializes.
 public func configure(_ app: Application) async throws {
@@ -18,22 +16,10 @@ public func configure(_ app: Application) async throws {
     let cors = CORSMiddleware(configuration: corsConfiguration)
     app.middleware.use(cors)
 
-    // Initialize Firebase
-    let serviceAccountPath = app.directory.workingDirectory + "service-account.json"
-    if FileManager.default.fileExists(atPath: serviceAccountPath) {
-        if let options = FirebaseOptions(contentsOfFile: serviceAccountPath) {
-            FirebaseApp.configure(options: options)
-            app.logger.info("Firebase initialized successfully")
-        } else {
-            app.logger.warning("Could not parse service-account.json")
-        }
-    } else {
-        app.logger.warning("service-account.json not found at \(serviceAccountPath)")
-        app.logger.warning("Firestore will not be available")
-    }
-
-    // Initialize services
-    app.firestoreService = FirestoreService()
+    // Initialize services (FirestoreService handles its own Firebase auth via REST API)
+    let firestoreService = FirestoreService()
+    await firestoreService.initialize()
+    app.firestoreService = firestoreService
     app.githubService = GitHubService()
     app.claudeService = ClaudeService(app: app)
     app.pushNotificationService = PushNotificationService()
