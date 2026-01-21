@@ -101,7 +101,7 @@ Configuration:
 - Create a repo_map.json file in your working directory
 - See README.md for full documentation
 
-For support, visit: https://github.com/YOUR_USERNAME/claude-ops
+For support, visit: https://github.com/LeeW7/claude-ops
 EOF
 
 echo "  ✓ DMG staging prepared"

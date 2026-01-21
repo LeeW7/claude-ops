@@ -92,7 +92,7 @@ gh auth login
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-ops.git
+git clone https://github.com/LeeW7/claude-ops.git
 cd claude-ops
 ```
 
@@ -127,8 +127,8 @@ Create a `repo_map.json` file in the project root that maps local filesystem pat
 
 ```json
 {
-    "/Users/yourname/Projects/my-app": "https://github.com/YOUR_USERNAME/my-app",
-    "/Users/yourname/Projects/another-repo": "https://github.com/YOUR_USERNAME/another-repo"
+    "/Users/yourname/Projects/my-app": "https://github.com/LeeW7/my-app",
+    "/Users/yourname/Projects/another-repo": "https://github.com/LeeW7/another-repo"
 }
 ```
 
@@ -397,7 +397,7 @@ Labels trigger different actions. Add these labels to issues to start jobs:
 curl -X POST http://localhost:5001/issues/create \
   -H "Content-Type: application/json" \
   -d '{
-    "repo": "YOUR_USERNAME/my-repo",
+    "repo": "LeeW7/my-repo",
     "title": "Add dark mode support",
     "body": "Implement a dark mode toggle in settings"
   }'
@@ -570,5 +570,5 @@ MIT
 
 ## Support
 
-- **Issues:** [GitHub Issues](https://github.com/YOUR_USERNAME/claude-ops/issues)
+- **Issues:** [GitHub Issues](https://github.com/LeeW7/claude-ops/issues)
 - **Documentation:** This README
