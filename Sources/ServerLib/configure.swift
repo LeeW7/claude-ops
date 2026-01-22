@@ -24,6 +24,15 @@ public func configure(_ app: Application) async throws {
     app.claudeService = ClaudeService(app: app)
     app.pushNotificationService = PushNotificationService()
     app.geminiService = GeminiService()
+    let worktreeService = WorktreeService(app: app, firestoreService: firestoreService)
+    await worktreeService.loadFromFirebase()
+    app.worktreeService = worktreeService
+    app.webSocketManager = WebSocketManager()
+
+    // Initialize pricing service (fetches latest pricing from Anthropic)
+    let pricingService = PricingService()
+    await pricingService.initialize()
+    app.pricingService = pricingService
 
     // Load repo map
     let repoMapPath = app.directory.workingDirectory + "repo_map.json"
@@ -65,6 +74,18 @@ struct RepoMapKey: StorageKey {
     typealias Value = RepoMap
 }
 
+struct WorktreeServiceKey: StorageKey {
+    typealias Value = WorktreeService
+}
+
+struct WebSocketManagerKey: StorageKey {
+    typealias Value = WebSocketManager
+}
+
+struct PricingServiceKey: StorageKey {
+    typealias Value = PricingService
+}
+
 public extension Application {
     var firestoreService: FirestoreService {
         get { storage[FirestoreServiceKey.self]! }
@@ -94,5 +115,20 @@ public extension Application {
     var repoMap: RepoMap? {
         get { storage[RepoMapKey.self] }
         set { storage[RepoMapKey.self] = newValue }
+    }
+
+    var worktreeService: WorktreeService {
+        get { storage[WorktreeServiceKey.self]! }
+        set { storage[WorktreeServiceKey.self] = newValue }
+    }
+
+    var webSocketManager: WebSocketManager {
+        get { storage[WebSocketManagerKey.self]! }
+        set { storage[WebSocketManagerKey.self] = newValue }
+    }
+
+    var pricingService: PricingService {
+        get { storage[PricingServiceKey.self]! }
+        set { storage[PricingServiceKey.self] = newValue }
     }
 }

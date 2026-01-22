@@ -37,5 +37,11 @@ let package = Package(
             dependencies: ["ServerLib"],
             path: "Sources/ClaudeOps"
         ),
+        // Tests
+        .testTarget(
+            name: "ServerLibTests",
+            dependencies: ["ServerLib"],
+            path: "Tests/ServerLibTests"
+        ),
     ]
 )

@@ -6,6 +6,8 @@ import Foundation
 actor PollingJob {
     private weak var app: Application?
     private let pollInterval: TimeInterval = 60 // seconds
+    private var pollCount: Int = 0
+    private let worktreeCleanupInterval: Int = 3600 // Run cleanup every hour (3600 polls at 1/sec, but we poll every 60s so 60 polls)
 
     /// Supported command labels to poll for
     private let cmdLabels = [
@@ -32,8 +34,18 @@ actor PollingJob {
             app.logger.error("Failed to mark interrupted jobs: \(error)")
         }
 
+        // Run initial worktree cleanup on startup
+        await app.worktreeService.cleanupOldWorktrees(olderThanDays: 7)
+
         while !Task.isCancelled {
             await pollAllRepos()
+            pollCount += 1
+
+            // Run worktree cleanup every hour (60 polls * 60 seconds = 1 hour)
+            if pollCount >= 60 {
+                pollCount = 0
+                await app.worktreeService.cleanupOldWorktrees(olderThanDays: 7)
+            }
 
             do {
                 try await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))

@@ -7,8 +7,14 @@ struct JobController: RouteCollection {
         routes.get("jobs", use: listJobs)
         routes.get("api", "status", use: listJobs)  // Alias
 
+        // Delta sync - get jobs modified since timestamp
+        routes.get("jobs", "sync", use: syncJobs)
+
         // Job logs
         routes.get("api", "logs", ":id", use: getJobLogs)
+
+        // Job trigger (simple endpoint for Flutter direct calls)
+        routes.post("jobs", "trigger", use: triggerJob)
 
         // Job actions
         routes.post("jobs", ":id", "approve", use: approveJob)
@@ -30,6 +36,93 @@ struct JobController: RouteCollection {
             responses.append(JobResponse(from: job, logs: logs))
         }
         return responses
+    }
+
+    /// Delta sync - returns only jobs modified since a given timestamp
+    /// Usage: GET /jobs/sync?since=1234567890 (Unix timestamp in seconds)
+    @Sendable
+    func syncJobs(req: Request) async throws -> SyncResponse {
+        let since: Int? = req.query["since"]
+        let allJobs = try await req.application.firestoreService.getAllJobs()
+
+        // Filter to jobs updated since the given timestamp
+        var modifiedJobs: [JobResponse] = []
+
+        if let sinceTimestamp = since {
+            let sinceDate = Date(timeIntervalSince1970: Double(sinceTimestamp))
+
+            for job in allJobs where job.updatedAt > sinceDate {
+                // Don't include logs for sync - just job metadata
+                modifiedJobs.append(JobResponse(from: job, logs: nil))
+            }
+        } else {
+            // No timestamp provided - return all jobs (no logs)
+            modifiedJobs = allJobs.map { JobResponse(from: $0, logs: nil) }
+        }
+
+        return SyncResponse(
+            jobs: modifiedJobs,
+            syncTimestamp: Int(Date().timeIntervalSince1970),
+            totalJobs: allJobs.count
+        )
+    }
+
+    /// Trigger a new job - simple endpoint for Flutter to call directly
+    /// Returns immediately, job runs in background
+    @Sendable
+    func triggerJob(req: Request) async throws -> Response {
+        let body = try req.content.decode(TriggerJobRequest.self)
+
+        req.logger.info("POST /jobs/trigger: repo=\(body.repo) issueNum=\(body.issueNum) command=\(body.command)")
+
+        guard let repoMap = req.application.repoMap else {
+            throw Abort(.internalServerError, reason: "Repo map not configured")
+        }
+
+        guard repoMap.getPath(for: body.repo) != nil else {
+            throw Abort(.badRequest, reason: "Repository \(body.repo) not found in repo_map.json")
+        }
+
+        // Build job ID to check if already exists
+        let repoSlug = body.repo.split(separator: "/").last.map(String.init) ?? body.repo
+        let jobId = "\(repoSlug)-\(body.issueNum)-\(body.command)"
+
+        // Check if job already exists and is active BEFORE returning success
+        do {
+            if try await req.application.firestoreService.jobExistsAndActive(id: jobId) {
+                req.logger.info("Job \(jobId) already exists and is active, rejecting trigger")
+                throw Abort(.conflict, reason: "Job \(jobId) is already running or pending")
+            }
+        } catch let error as Abort {
+            throw error
+        } catch {
+            req.logger.error("Error checking job status: \(error)")
+            throw Abort(.internalServerError, reason: "Failed to check job status: \(error.localizedDescription)")
+        }
+
+        // Now trigger job in background - we know it doesn't already exist
+        let app = req.application
+        Task {
+            await app.jobTriggerService.triggerJob(
+                repo: body.repo,
+                issueNum: body.issueNum,
+                issueTitle: body.issueTitle,
+                command: body.command,
+                cmdLabel: body.cmdLabel
+            )
+        }
+
+        let response: [String: Any] = [
+            "status": "triggered",
+            "message": "Starting \(body.command) job for \(body.repo)#\(body.issueNum)"
+        ]
+
+        let data = try JSONSerialization.data(withJSONObject: response)
+        return Response(
+            status: .ok,
+            headers: ["Content-Type": "application/json"],
+            body: .init(data: data)
+        )
     }
 
     /// Get logs for a specific job
@@ -125,6 +218,9 @@ struct JobController: RouteCollection {
         // Update status to rejected
         try await req.application.firestoreService.updateJobStatus(id: job.id, status: .rejected)
 
+        // Set in-memory cancellation flag (checked by running job loop)
+        await req.application.jobCancellationManager.cancel(job.id)
+
         // Terminate process if running
         await req.application.claudeService.terminateProcess(job.id)
 
@@ -154,4 +250,13 @@ struct JobActionRequest: Content {
     let job_id: String?
     let issueId: String?
     let id: String?
+}
+
+/// Request body for triggering a job
+struct TriggerJobRequest: Content {
+    let repo: String
+    let issueNum: Int
+    let issueTitle: String
+    let command: String
+    let cmdLabel: String?
 }

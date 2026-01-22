@@ -68,9 +68,10 @@ public actor GoogleAuthService {
         let now = Date()
         let expiry = now.addingTimeInterval(3600) // 1 hour
 
+        // Use cloud-platform scope which covers Firestore, FCM, and other Google Cloud APIs
         let claims = GoogleJWTClaims(
             iss: serviceAccount.clientEmail,
-            scope: "https://www.googleapis.com/auth/datastore",
+            scope: "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/firebase.messaging",
             aud: "https://oauth2.googleapis.com/token",
             iat: now,
             exp: expiry

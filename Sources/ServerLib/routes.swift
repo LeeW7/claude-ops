@@ -12,4 +12,5 @@ func routes(_ app: Application) throws {
     try app.register(collection: IssueController())
     try app.register(collection: RepoController())
     try app.register(collection: ImageController())
+    try app.register(collection: WebSocketController())
 }
