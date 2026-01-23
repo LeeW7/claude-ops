@@ -1,6 +1,4 @@
 import Vapor
-import FirebaseCore
-import FirebaseFirestore
 
 /// Called before your application initializes.
 public func configure(_ app: Application) async throws {
@@ -18,26 +16,37 @@ public func configure(_ app: Application) async throws {
     let cors = CORSMiddleware(configuration: corsConfiguration)
     app.middleware.use(cors)
 
-    // Initialize Firebase
-    let serviceAccountPath = app.directory.workingDirectory + "service-account.json"
-    if FileManager.default.fileExists(atPath: serviceAccountPath) {
-        if let options = FirebaseOptions(contentsOfFile: serviceAccountPath) {
-            FirebaseApp.configure(options: options)
-            app.logger.info("Firebase initialized successfully")
-        } else {
-            app.logger.warning("Could not parse service-account.json")
-        }
-    } else {
-        app.logger.warning("service-account.json not found at \(serviceAccountPath)")
-        app.logger.warning("Firestore will not be available")
+    // Initialize persistence service based on STORAGE_BACKEND environment variable
+    // Default to SQLite ("local") for easier local development
+    let storageBackend = Environment.get("STORAGE_BACKEND") ?? "local"
+    let persistenceService: any PersistenceService
+
+    switch storageBackend {
+    case "firestore":
+        print("[Persistence] Using Firestore backend")
+        persistenceService = FirestoreService()
+    default:
+        print("[Persistence] Using SQLite backend")
+        let dbPath = app.directory.workingDirectory + "claude-ops.db"
+        persistenceService = try SQLitePersistenceService(databasePath: dbPath)
     }
 
-    // Initialize services
-    app.firestoreService = FirestoreService()
+    try await persistenceService.initialize()
+    app.persistenceService = persistenceService
+
     app.githubService = GitHubService()
     app.claudeService = ClaudeService(app: app)
     app.pushNotificationService = PushNotificationService()
     app.geminiService = GeminiService()
+    let worktreeService = WorktreeService(app: app, persistenceService: persistenceService)
+    await worktreeService.loadFromPersistence()
+    app.worktreeService = worktreeService
+    app.webSocketManager = WebSocketManager()
+
+    // Initialize pricing service (fetches latest pricing from Anthropic)
+    let pricingService = PricingService()
+    await pricingService.initialize()
+    app.pricingService = pricingService
 
     // Load repo map
     let repoMapPath = app.directory.workingDirectory + "repo_map.json"
@@ -55,8 +64,8 @@ public func configure(_ app: Application) async throws {
 
 // MARK: - Application Storage Keys
 
-struct FirestoreServiceKey: StorageKey {
-    typealias Value = FirestoreService
+struct PersistenceServiceKey: StorageKey {
+    typealias Value = any PersistenceService
 }
 
 struct GitHubServiceKey: StorageKey {
@@ -79,10 +88,22 @@ struct RepoMapKey: StorageKey {
     typealias Value = RepoMap
 }
 
+struct WorktreeServiceKey: StorageKey {
+    typealias Value = WorktreeService
+}
+
+struct WebSocketManagerKey: StorageKey {
+    typealias Value = WebSocketManager
+}
+
+struct PricingServiceKey: StorageKey {
+    typealias Value = PricingService
+}
+
 public extension Application {
-    var firestoreService: FirestoreService {
-        get { storage[FirestoreServiceKey.self]! }
-        set { storage[FirestoreServiceKey.self] = newValue }
+    var persistenceService: any PersistenceService {
+        get { storage[PersistenceServiceKey.self]! }
+        set { storage[PersistenceServiceKey.self] = newValue }
     }
 
     var githubService: GitHubService {
@@ -108,5 +129,20 @@ public extension Application {
     var repoMap: RepoMap? {
         get { storage[RepoMapKey.self] }
         set { storage[RepoMapKey.self] = newValue }
+    }
+
+    var worktreeService: WorktreeService {
+        get { storage[WorktreeServiceKey.self]! }
+        set { storage[WorktreeServiceKey.self] = newValue }
+    }
+
+    var webSocketManager: WebSocketManager {
+        get { storage[WebSocketManagerKey.self]! }
+        set { storage[WebSocketManagerKey.self] = newValue }
+    }
+
+    var pricingService: PricingService {
+        get { storage[PricingServiceKey.self]! }
+        set { storage[PricingServiceKey.self] = newValue }
     }
 }

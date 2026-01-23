@@ -30,7 +30,7 @@ public struct JobTriggerService {
 
         // Check if job already exists and is active
         do {
-            if try await app.firestoreService.jobExistsAndActive(id: jobId) {
+            if try await app.persistenceService.jobExistsAndActive(id: jobId) {
                 app.logger.info("Job \(jobId) already exists and is active, skipping")
                 return false
             }
@@ -39,26 +39,55 @@ public struct JobTriggerService {
             return false
         }
 
-        // Get local path for repo
-        guard let localPath = repoMap.getPath(for: repo) else {
+        // Get local path for repo (main repo location)
+        guard let mainRepoPath = repoMap.getPath(for: repo) else {
             app.logger.warning("Received trigger for \(repo), but not found in repo_map.json")
             return false
         }
 
-        app.logger.info("Triggering Job: \(jobId) with /\(command) in \(localPath)")
+        // Get or create worktree for this issue (enables parallel jobs)
+        let workingPath: String
+        do {
+            workingPath = try await app.worktreeService.getOrCreateWorktree(
+                repo: repo,
+                issueNum: issueNum,
+                mainRepoPath: mainRepoPath
+            )
+        } catch {
+            app.logger.error("Failed to create worktree for \(jobId): \(error)")
+            // Fall back to main repo path if worktree fails
+            workingPath = mainRepoPath
+            app.logger.warning("Falling back to main repo path: \(mainRepoPath)")
+        }
 
-        // Create job
+        app.logger.info("Triggering Job: \(jobId) with /\(command) in \(workingPath)")
+
+        // Create job with worktree path
         let job = Job(
             repo: repo,
             issueNum: issueNum,
             issueTitle: issueTitle,
             command: command,
-            localPath: localPath
+            localPath: workingPath
         )
 
         do {
             // Save job to store
-            try await app.firestoreService.saveJob(job)
+            try await app.persistenceService.saveJob(job)
+
+            // Broadcast job created event to all global WebSocket subscribers
+            let jobEvent = JobEvent(
+                type: .jobCreated,
+                job: JobEventData(
+                    id: job.id,
+                    repo: job.repo,
+                    issueNum: job.issueNum,
+                    issueTitle: job.issueTitle,
+                    command: job.command,
+                    status: job.status.rawValue
+                )
+            )
+            app.webSocketManager.broadcastGlobal(jobEvent)
 
             // Remove the cmd label from the issue (if provided)
             if let cmdLabel = cmdLabel {

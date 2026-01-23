@@ -1,9 +1,17 @@
 import Vapor
 
+/// Track if logging has been bootstrapped (can only happen once per process)
+private var loggingBootstrapped = false
+
 /// Public function to create and configure a Vapor application
 public func createServer() async throws -> Application {
     var env = try Environment.detect()
-    try LoggingSystem.bootstrap(from: &env)
+
+    // LoggingSystem.bootstrap can only be called once per process
+    if !loggingBootstrapped {
+        try LoggingSystem.bootstrap(from: &env)
+        loggingBootstrapped = true
+    }
 
     let app = try await Application.make(env)
     try await configure(app)

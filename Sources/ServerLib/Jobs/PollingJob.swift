@@ -6,6 +6,8 @@ import Foundation
 actor PollingJob {
     private weak var app: Application?
     private let pollInterval: TimeInterval = 60 // seconds
+    private var pollCount: Int = 0
+    private let worktreeCleanupInterval: Int = 3600 // Run cleanup every hour (3600 polls at 1/sec, but we poll every 60s so 60 polls)
 
     /// Supported command labels to poll for
     private let cmdLabels = [
@@ -27,13 +29,25 @@ actor PollingJob {
 
         // Mark any interrupted jobs on startup
         do {
-            try await app.firestoreService.markInterruptedJobs()
+            try await app.persistenceService.markInterruptedJobs()
         } catch {
             app.logger.error("Failed to mark interrupted jobs: \(error)")
         }
 
+        // Run initial worktree cleanup on startup
+        await app.worktreeService.cleanupOldWorktrees(olderThanDays: 7)
+
+        app.logger.info("[Polling] Initialization complete, entering main polling loop")
+
         while !Task.isCancelled {
             await pollAllRepos()
+            pollCount += 1
+
+            // Run worktree cleanup every hour (60 polls * 60 seconds = 1 hour)
+            if pollCount >= 60 {
+                pollCount = 0
+                await app.worktreeService.cleanupOldWorktrees(olderThanDays: 7)
+            }
 
             do {
                 try await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
@@ -45,9 +59,13 @@ actor PollingJob {
 
     /// Poll all repositories for labeled issues
     private func pollAllRepos() async {
-        guard let app = app, let repoMap = app.repoMap else { return }
+        guard let app = app, let repoMap = app.repoMap else {
+            app?.logger.warning("[Polling] No app or repoMap available, skipping poll cycle")
+            return
+        }
 
         let repos = repoMap.allRepositories()
+        app.logger.debug("[Polling] Checking \(repos.count) repositories for cmd: labels")
 
         for repo in repos {
             for cmdLabel in cmdLabels {
@@ -63,25 +81,38 @@ actor PollingJob {
         do {
             let issues = try await app.githubService.listIssuesWithLabel(repo: repo, label: cmdLabel)
 
+            if !issues.isEmpty {
+                app.logger.info("[Polling] Found \(issues.count) issue(s) with '\(cmdLabel)' in \(repo)")
+            }
+
             for issue in issues {
                 guard let number = issue["number"] as? Int,
                       let title = issue["title"] as? String else {
+                    app.logger.warning("[Polling] Issue in \(repo) missing number or title, skipping")
                     continue
                 }
 
                 let commandName = cmdLabel.replacingOccurrences(of: "cmd:", with: "")
+                app.logger.info("[Polling] Triggering \(commandName) for \(repo)#\(number)")
 
                 // Use shared job trigger service
-                await app.jobTriggerService.triggerJob(
+                let triggered = await app.jobTriggerService.triggerJob(
                     repo: repo,
                     issueNum: number,
                     issueTitle: title,
                     command: commandName,
                     cmdLabel: cmdLabel
                 )
+
+                if triggered {
+                    app.logger.info("[Polling] Successfully triggered job for \(repo)#\(number)")
+                } else {
+                    app.logger.debug("[Polling] Job not triggered for \(repo)#\(number) (may already exist)")
+                }
             }
         } catch {
-            // Silently fail - polling is best effort
+            // Log the error instead of silently swallowing it
+            app.logger.error("[Polling] Failed to check \(repo) for '\(cmdLabel)': \(error.localizedDescription)")
         }
     }
 }

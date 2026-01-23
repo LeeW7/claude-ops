@@ -55,7 +55,10 @@ class ServerManager: ObservableObject {
     // MARK: - Server Control
 
     func startServer() async {
-        guard !isRunning && !isStarting else { return }
+        guard !isRunning && !isStarting else {
+            print("[ServerManager] startServer called but already running=\(isRunning) starting=\(isStarting)")
+            return
+        }
 
         isStarting = true
         errorMessage = nil
@@ -63,11 +66,14 @@ class ServerManager: ObservableObject {
         do {
             // Change to the working directory where config files are
             let workingDir = getWorkingDirectory()
+            print("[ServerManager] Working directory: \(workingDir)")
             FileManager.default.changeCurrentDirectoryPath(workingDir)
 
+            print("[ServerManager] Starting server...")
             app = try await startServerInBackground()
             isRunning = true
             startTime = Date()
+            print("[ServerManager] Server started successfully")
 
             // Start refresh loop
             startRefreshLoop()
@@ -78,6 +84,7 @@ class ServerManager: ObservableObject {
 
             sendNotification(title: "Claude Ops", body: "Server started on port 5001")
         } catch {
+            print("[ServerManager] Failed to start server: \(error)")
             errorMessage = error.localizedDescription
             sendNotification(title: "Claude Ops Error", body: "Failed to start server")
         }
@@ -139,7 +146,7 @@ class ServerManager: ObservableObject {
         guard let app = app else { return }
 
         do {
-            let allJobs = try await app.firestoreService.getAllJobs()
+            let allJobs = try await app.persistenceService.getAllJobs()
             let previousActiveCount = activeJobCount
 
             await MainActor.run {
@@ -175,7 +182,7 @@ class ServerManager: ObservableObject {
         guard let app = app else { return }
 
         do {
-            try await app.firestoreService.updateJobStatus(id: job.id, status: .approvedResume)
+            try await app.persistenceService.updateJobStatus(id: job.id, status: .approvedResume, error: nil)
             await refreshData()
         } catch {
             errorMessage = "Failed to approve job: \(error.localizedDescription)"
@@ -186,7 +193,7 @@ class ServerManager: ObservableObject {
         guard let app = app else { return }
 
         do {
-            try await app.firestoreService.updateJobStatus(id: job.id, status: .rejected)
+            try await app.persistenceService.updateJobStatus(id: job.id, status: .rejected, error: nil)
             await app.claudeService.terminateProcess(job.id)
             await refreshData()
         } catch {
@@ -209,17 +216,22 @@ class ServerManager: ObservableObject {
                 .appendingPathComponent("ClaudeOps").path,
             // Current directory (for development)
             FileManager.default.currentDirectoryPath,
-            // Bundle parent directory (for development builds)
+            // Bundle parent directory (for bundled app in project folder)
+            Bundle.main.bundlePath + "/..",
+            // Two levels up (for nested builds)
             Bundle.main.bundlePath + "/../.."
         ].compactMap { $0 }
 
         for path in candidates {
             let repoMapPath = path + "/repo_map.json"
+            print("[ServerManager] Checking for config at: \(repoMapPath)")
             if FileManager.default.fileExists(atPath: repoMapPath) {
+                print("[ServerManager] Found config at: \(path)")
                 return path
             }
         }
 
+        print("[ServerManager] WARNING: No config found, using current directory")
         return FileManager.default.currentDirectoryPath
     }
 

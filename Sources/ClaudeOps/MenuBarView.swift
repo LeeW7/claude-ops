@@ -299,6 +299,7 @@ struct JobRowView: View {
         case .rejected: return .gray
         case .interrupted: return .purple
         case .approvedResume: return .cyan
+        case .blocked: return .orange
         }
     }
 }

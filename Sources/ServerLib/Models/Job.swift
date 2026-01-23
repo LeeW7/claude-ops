@@ -2,13 +2,14 @@ import Vapor
 import Foundation
 
 /// Job status values
-public enum JobStatus: String, Codable, CaseIterable {
+public enum JobStatus: String, Codable, CaseIterable, Sendable {
     case pending
     case running
     case completed
     case failed
     case rejected
     case interrupted
+    case blocked
     case waitingApproval = "waiting_approval"
     case approvedResume = "approved_resume"
 
@@ -20,13 +21,20 @@ public enum JobStatus: String, Codable, CaseIterable {
         case .failed: return "Failed"
         case .rejected: return "Rejected"
         case .interrupted: return "Interrupted"
+        case .blocked: return "Blocked"
         case .waitingApproval: return "Waiting Approval"
         case .approvedResume: return "Approved"
         }
     }
 
+    /// Whether the job is actively running or pending
     public var isActive: Bool {
         self == .pending || self == .running || self == .waitingApproval
+    }
+
+    /// Whether the job needs user attention (blocked, failed, waiting)
+    public var needsAttention: Bool {
+        self == .blocked || self == .failed || self == .waitingApproval
     }
 }
 
@@ -51,8 +59,8 @@ public struct Job: Content, Identifiable, Hashable, Equatable {
     /// GitHub issue number
     public let issueNum: Int
 
-    /// Issue title
-    public let issueTitle: String
+    /// Issue title (mutable - can be updated when Claude modifies the issue)
+    public var issueTitle: String
 
     /// Command name: "plan-headless", "implement-headless", etc.
     public let command: String
@@ -77,6 +85,12 @@ public struct Job: Content, Identifiable, Hashable, Equatable {
 
     /// Error message if job failed
     public var error: String?
+
+    /// Cost information for this job
+    public var cost: JobCost?
+
+    /// Claude session ID for resume support
+    public var sessionId: String?
 
     /// Timestamp when created
     public let createdAt: Date
@@ -106,8 +120,48 @@ public struct Job: Content, Identifiable, Hashable, Equatable {
         self.localPath = localPath
         self.fullCommand = "cd \(localPath) && claude '/\(command) \(issueNum)' --print --dangerously-skip-permissions"
         self.error = nil
+        self.cost = nil
+        self.sessionId = nil
         self.createdAt = Date()
         self.updatedAt = Date()
+    }
+
+    /// Restore a job from persistence (all fields explicit)
+    public init(
+        id: String,
+        repo: String,
+        repoSlug: String,
+        issueNum: Int,
+        issueTitle: String,
+        command: String,
+        status: JobStatus,
+        startTime: Int,
+        completedTime: Int?,
+        logPath: String,
+        localPath: String,
+        fullCommand: String,
+        error: String?,
+        sessionId: String?,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.repo = repo
+        self.repoSlug = repoSlug
+        self.issueNum = issueNum
+        self.issueTitle = issueTitle
+        self.command = command
+        self.status = status
+        self.startTime = startTime
+        self.completedTime = completedTime
+        self.logPath = logPath
+        self.localPath = localPath
+        self.fullCommand = fullCommand
+        self.error = error
+        self.cost = nil
+        self.sessionId = sessionId
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 
     /// Coding keys for JSON/Firestore
@@ -125,6 +179,8 @@ public struct Job: Content, Identifiable, Hashable, Equatable {
         case localPath = "local_path"
         case fullCommand = "full_command"
         case error
+        case cost
+        case sessionId = "session_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -154,9 +210,9 @@ public struct JobResponse: Content {
     public let start_time: Int
     public let issue_title: String
     public let issue_num: Int
-    public let logs: [String]
+    public let logs: [String]?
 
-    public init(from job: Job, logs: [String] = []) {
+    public init(from job: Job, logs: [String]? = []) {
         self.issueId = job.id
         self.issue_id = job.id
         self.status = job.status.rawValue
@@ -167,6 +223,19 @@ public struct JobResponse: Content {
         self.issue_title = job.issueTitle
         self.issue_num = job.issueNum
         self.logs = logs
+    }
+}
+
+/// Response format for delta sync
+public struct SyncResponse: Content {
+    public let jobs: [JobResponse]
+    public let syncTimestamp: Int
+    public let totalJobs: Int
+
+    public init(jobs: [JobResponse], syncTimestamp: Int, totalJobs: Int) {
+        self.jobs = jobs
+        self.syncTimestamp = syncTimestamp
+        self.totalJobs = totalJobs
     }
 }
 

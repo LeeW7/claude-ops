@@ -18,6 +18,12 @@ repo_map.json
 
 # Runtime data - do not commit
 jobs.json
+jobs.json.migrated
+
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
 
 # Binaries
 *.dmg
