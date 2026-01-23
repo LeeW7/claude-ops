@@ -14,6 +14,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.89.0"),
         .package(url: "https://github.com/vapor/jwt-kit.git", from: "5.0.0"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.24.0"),
     ],
     targets: [
         // Shared server library
@@ -22,6 +23,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "JWTKit", package: "jwt-kit"),
+                .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Sources/ServerLib"
         ),

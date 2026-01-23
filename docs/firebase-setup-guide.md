@@ -6,7 +6,7 @@ This guide covers setting up the Firebase/Firestore integration for claude-ops a
 
 ## Prerequisites
 
-- Firebase project created (e.g., `agent-command-center-bf2b7`)
+- Firebase project created (e.g., `your-project-id`)
 - Service account JSON file with Firestore access
 - Swift toolchain installed (5.9+)
 - Flutter SDK installed (3.x)
@@ -31,10 +31,10 @@ Your `service-account.json` in `/Users/leew/GitRepo/claude-ops/` should contain:
 ```json
 {
   "type": "service_account",
-  "project_id": "agent-command-center-bf2b7",
+  "project_id": "your-project-id",
   "private_key_id": "...",
   "private_key": "-----BEGIN PRIVATE KEY-----\n...",
-  "client_email": "firebase-adminsdk-xxxxx@agent-command-center-bf2b7.iam.gserviceaccount.com",
+  "client_email": "firebase-adminsdk-xxxxx@your-project-id.iam.gserviceaccount.com",
   "client_id": "...",
   "auth_uri": "https://accounts.google.com/o/oauth2/auth",
   "token_uri": "https://oauth2.googleapis.com/token"

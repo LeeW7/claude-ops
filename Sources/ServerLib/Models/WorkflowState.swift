@@ -21,6 +21,7 @@ struct WorkflowState: Content {
     let canRevise: Bool
     let canMerge: Bool
     let issueClosed: Bool?
+    let activeJobId: String?  // Active job ID for WebSocket connection
 
     enum CodingKeys: String, CodingKey {
         case currentPhase = "current_phase"
@@ -32,6 +33,7 @@ struct WorkflowState: Content {
         case canRevise = "can_revise"
         case canMerge = "can_merge"
         case issueClosed = "issue_closed"
+        case activeJobId = "active_job_id"
     }
 
     /// Create workflow state based on job history
@@ -55,11 +57,12 @@ struct WorkflowState: Content {
             $0.status == .completed
         }.count
 
-        // Check if revise is running
-        let reviseRunning = jobs.contains {
+        // Check if revise is running and get active revise job
+        let activeReviseJob = jobs.first {
             $0.id.hasPrefix("\(repoSlug)-\(issueNum)-revise-headless") &&
             ($0.status == .pending || $0.status == .running)
         }
+        let reviseRunning = activeReviseJob != nil
 
         // Build completed phases list
         var completedPhases: [String] = []
@@ -78,11 +81,18 @@ struct WorkflowState: Content {
                 revisionCount: revisionCount,
                 canRevise: false,
                 canMerge: false,
-                issueClosed: issueClosed
+                issueClosed: issueClosed,
+                activeJobId: nil
             )
         } else if completedPhases.contains("implement") {
             // Check if retrospective is already running
             let retroRunning = retroJob?.status == .pending || retroJob?.status == .running
+            // Determine active job ID
+            let activeJobId: String? = {
+                if retroRunning { return retroJob?.id }
+                if reviseRunning { return activeReviseJob?.id }
+                return nil
+            }()
             return WorkflowState(
                 currentPhase: "review",
                 nextAction: retroRunning ? nil : "retrospective",
@@ -92,13 +102,21 @@ struct WorkflowState: Content {
                 revisionCount: revisionCount,
                 canRevise: !reviseRunning && !retroRunning && !issueClosed,
                 canMerge: !reviseRunning && !retroRunning && !issueClosed,
-                issueClosed: issueClosed
+                issueClosed: issueClosed,
+                activeJobId: activeJobId
             )
         } else if completedPhases.contains("plan") {
             // Check if implement is already running
             let implementRunning = implementJob?.status == .pending || implementJob?.status == .running
             // Check if plan is being re-run (for plan feedback)
             let planRunning = planJob?.status == .running
+            // Determine active job ID
+            let activeJobId: String? = {
+                if implementRunning { return implementJob?.id }
+                if planRunning { return planJob?.id }
+                if reviseRunning { return activeReviseJob?.id }
+                return nil
+            }()
             return WorkflowState(
                 currentPhase: implementRunning ? "implementing" : (planRunning ? "planning" : "plan_complete"),
                 nextAction: (implementRunning || planRunning) ? nil : "implement",
@@ -108,7 +126,8 @@ struct WorkflowState: Content {
                 revisionCount: revisionCount,
                 canRevise: !implementRunning && !planRunning && !issueClosed,  // Allow plan feedback
                 canMerge: false,
-                issueClosed: issueClosed
+                issueClosed: issueClosed,
+                activeJobId: activeJobId
             )
         } else if planJob?.status == .pending || planJob?.status == .running {
             return WorkflowState(
@@ -120,7 +139,8 @@ struct WorkflowState: Content {
                 revisionCount: revisionCount,
                 canRevise: false,
                 canMerge: false,
-                issueClosed: issueClosed
+                issueClosed: issueClosed,
+                activeJobId: planJob?.id
             )
         } else {
             return WorkflowState(
@@ -132,7 +152,8 @@ struct WorkflowState: Content {
                 revisionCount: revisionCount,
                 canRevise: false,
                 canMerge: false,
-                issueClosed: issueClosed
+                issueClosed: issueClosed,
+                activeJobId: nil
             )
         }
     }

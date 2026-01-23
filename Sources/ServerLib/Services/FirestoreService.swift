@@ -2,7 +2,7 @@ import Vapor
 import Foundation
 
 /// Service for job persistence using Firestore REST API
-public actor FirestoreService {
+public actor FirestoreService: PersistenceService {
     private let authService: GoogleAuthService?
     private let projectId: String
     private let baseURL: String

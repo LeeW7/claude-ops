@@ -28,7 +28,7 @@ struct JobController: RouteCollection {
     /// List all jobs with last 50 log lines
     @Sendable
     func listJobs(req: Request) async throws -> [JobResponse] {
-        let jobs = try await req.application.firestoreService.getAllJobs()
+        let jobs = try await req.application.persistenceService.getAllJobs()
 
         var responses: [JobResponse] = []
         for job in jobs {
@@ -43,7 +43,7 @@ struct JobController: RouteCollection {
     @Sendable
     func syncJobs(req: Request) async throws -> SyncResponse {
         let since: Int? = req.query["since"]
-        let allJobs = try await req.application.firestoreService.getAllJobs()
+        let allJobs = try await req.application.persistenceService.getAllJobs()
 
         // Filter to jobs updated since the given timestamp
         var modifiedJobs: [JobResponse] = []
@@ -89,7 +89,7 @@ struct JobController: RouteCollection {
 
         // Check if job already exists and is active BEFORE returning success
         do {
-            if try await req.application.firestoreService.jobExistsAndActive(id: jobId) {
+            if try await req.application.persistenceService.jobExistsAndActive(id: jobId) {
                 req.logger.info("Job \(jobId) already exists and is active, rejecting trigger")
                 throw Abort(.conflict, reason: "Job \(jobId) is already running or pending")
             }
@@ -133,7 +133,7 @@ struct JobController: RouteCollection {
         }
 
         // Try exact match first, then fuzzy match
-        guard let job = try await req.application.firestoreService.getJobFuzzy(id: requestId) else {
+        guard let job = try await req.application.persistenceService.getJobFuzzy(id: requestId) else {
             throw Abort(.notFound, reason: "Job not found")
         }
 
@@ -189,7 +189,7 @@ struct JobController: RouteCollection {
 
     /// Process job approval
     private func processApproval(req: Request, jobId: String) async throws -> Response {
-        guard let job = try await req.application.firestoreService.getJobFuzzy(id: jobId) else {
+        guard let job = try await req.application.persistenceService.getJobFuzzy(id: jobId) else {
             throw Abort(.notFound, reason: "Job not found")
         }
 
@@ -197,7 +197,7 @@ struct JobController: RouteCollection {
             throw Abort(.badRequest, reason: "Job not waiting for approval")
         }
 
-        try await req.application.firestoreService.updateJobStatus(id: job.id, status: .approvedResume)
+        try await req.application.persistenceService.updateJobStatus(id: job.id, status: JobStatus.approvedResume, error: nil as String?)
 
         return Response(
             status: .ok,
@@ -207,7 +207,7 @@ struct JobController: RouteCollection {
 
     /// Process job rejection
     private func processRejection(req: Request, jobId: String) async throws -> Response {
-        guard let job = try await req.application.firestoreService.getJobFuzzy(id: jobId) else {
+        guard let job = try await req.application.persistenceService.getJobFuzzy(id: jobId) else {
             throw Abort(.notFound, reason: "Job not found")
         }
 
@@ -216,7 +216,7 @@ struct JobController: RouteCollection {
         }
 
         // Update status to rejected
-        try await req.application.firestoreService.updateJobStatus(id: job.id, status: .rejected)
+        try await req.application.persistenceService.updateJobStatus(id: job.id, status: JobStatus.rejected, error: nil as String?)
 
         // Set in-memory cancellation flag (checked by running job loop)
         await req.application.jobCancellationManager.cancel(job.id)
@@ -233,9 +233,10 @@ struct JobController: RouteCollection {
         )
 
         // Send notification
+        let commandName = job.command.replacingOccurrences(of: "-headless", with: "").capitalized
         await req.application.pushNotificationService.send(
-            title: "Job Rejected",
-            body: "\(job.id) was cancelled"
+            title: "\(commandName) Cancelled - #\(job.issueNum)",
+            body: String(job.issueTitle.prefix(50))
         )
 
         return Response(

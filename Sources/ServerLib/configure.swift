@@ -16,16 +16,30 @@ public func configure(_ app: Application) async throws {
     let cors = CORSMiddleware(configuration: corsConfiguration)
     app.middleware.use(cors)
 
-    // Initialize services (FirestoreService handles its own Firebase auth via REST API)
-    let firestoreService = FirestoreService()
-    await firestoreService.initialize()
-    app.firestoreService = firestoreService
+    // Initialize persistence service based on STORAGE_BACKEND environment variable
+    // Default to SQLite ("local") for easier local development
+    let storageBackend = Environment.get("STORAGE_BACKEND") ?? "local"
+    let persistenceService: any PersistenceService
+
+    switch storageBackend {
+    case "firestore":
+        print("[Persistence] Using Firestore backend")
+        persistenceService = FirestoreService()
+    default:
+        print("[Persistence] Using SQLite backend")
+        let dbPath = app.directory.workingDirectory + "claude-ops.db"
+        persistenceService = try SQLitePersistenceService(databasePath: dbPath)
+    }
+
+    try await persistenceService.initialize()
+    app.persistenceService = persistenceService
+
     app.githubService = GitHubService()
     app.claudeService = ClaudeService(app: app)
     app.pushNotificationService = PushNotificationService()
     app.geminiService = GeminiService()
-    let worktreeService = WorktreeService(app: app, firestoreService: firestoreService)
-    await worktreeService.loadFromFirebase()
+    let worktreeService = WorktreeService(app: app, persistenceService: persistenceService)
+    await worktreeService.loadFromPersistence()
     app.worktreeService = worktreeService
     app.webSocketManager = WebSocketManager()
 
@@ -50,8 +64,8 @@ public func configure(_ app: Application) async throws {
 
 // MARK: - Application Storage Keys
 
-struct FirestoreServiceKey: StorageKey {
-    typealias Value = FirestoreService
+struct PersistenceServiceKey: StorageKey {
+    typealias Value = any PersistenceService
 }
 
 struct GitHubServiceKey: StorageKey {
@@ -87,9 +101,9 @@ struct PricingServiceKey: StorageKey {
 }
 
 public extension Application {
-    var firestoreService: FirestoreService {
-        get { storage[FirestoreServiceKey.self]! }
-        set { storage[FirestoreServiceKey.self] = newValue }
+    var persistenceService: any PersistenceService {
+        get { storage[PersistenceServiceKey.self]! }
+        set { storage[PersistenceServiceKey.self] = newValue }
     }
 
     var githubService: GitHubService {

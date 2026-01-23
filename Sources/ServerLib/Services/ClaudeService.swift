@@ -4,10 +4,70 @@ import Foundation
 /// Service for managing Claude CLI processes
 public actor ClaudeService {
     private var runningProcesses: [String: Process] = [:]
+    private var stdinPipes: [String: Pipe] = [:]  // Store stdin pipes for interactive input
     private weak var app: Application?
 
     public init(app: Application) {
         self.app = app
+    }
+
+    /// Find the claude CLI executable
+    private func findClaude() -> String {
+        let paths = [
+            "/opt/homebrew/bin/claude",
+            "/usr/local/bin/claude",
+            "\(FileManager.default.homeDirectoryForCurrentUser.path)/.npm-global/bin/claude",
+            "/usr/bin/claude"
+        ]
+        for path in paths {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        return "claude" // Fallback to PATH lookup
+    }
+
+    /// Send input to a running Claude process
+    /// Used for interactive sessions where user can send follow-up messages
+    public func sendInput(jobId: String, text: String) -> Bool {
+        guard let stdinPipe = stdinPipes[jobId],
+              runningProcesses[jobId]?.isRunning == true else {
+            app?.logger.warning("[\(jobId)] Cannot send input - process not running or no stdin pipe")
+            return false
+        }
+
+        // Format as JSON for --input-format stream-json
+        let inputMessage: [String: Any] = [
+            "type": "user_input",
+            "content": text
+        ]
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: inputMessage),
+              var jsonString = String(data: jsonData, encoding: .utf8) else {
+            app?.logger.error("[\(jobId)] Failed to serialize input message")
+            return false
+        }
+
+        // Add newline to complete the JSON line
+        jsonString += "\n"
+
+        guard let data = jsonString.data(using: .utf8) else {
+            return false
+        }
+
+        do {
+            try stdinPipe.fileHandleForWriting.write(contentsOf: data)
+            app?.logger.info("[\(jobId)] Sent input: \(text.prefix(50))...")
+            return true
+        } catch {
+            app?.logger.error("[\(jobId)] Failed to write to stdin: \(error)")
+            return false
+        }
+    }
+
+    /// Check if a job can receive input (is running with stdin available)
+    public func canReceiveInput(jobId: String) -> Bool {
+        return stdinPipes[jobId] != nil && runningProcesses[jobId]?.isRunning == true
     }
 
     /// Run a Claude CLI command for a job with streaming output
@@ -18,7 +78,7 @@ public actor ClaudeService {
 
         // Update job status to running
         do {
-            try await app.firestoreService.updateJobStatus(id: job.id, status: .running)
+            try await app.persistenceService.updateJobStatus(id: job.id, status: JobStatus.running, error: nil as String?)
         } catch {
             app.logger.error("Failed to update job status: \(error)")
         }
@@ -46,16 +106,21 @@ public actor ClaudeService {
         app.webSocketManager.broadcastGlobal(runningEvent)
 
         // Send push notification
+        let commandName = job.command.replacingOccurrences(of: "-headless", with: "").capitalized
+        let shortTitle = job.issueTitle.count > 40 ? String(job.issueTitle.prefix(37)) + "..." : job.issueTitle
         await app.pushNotificationService.send(
-            title: "Agent Started",
-            body: "Running in \(job.repo)"
+            title: "\(commandName) Started - #\(job.issueNum)",
+            body: shortTitle
         )
 
         // Build the streaming command
         // Use --output-format stream-json for real-time streaming
+        // Use --input-format stream-json for interactive input
         // --print -p for non-interactive mode
         // --include-partial-messages to get text chunks as they arrive
-        let streamingCommand = "cd \(job.localPath) && claude '/\(job.command) \(job.issueNum)' --print --output-format stream-json --include-partial-messages --verbose --dangerously-skip-permissions"
+        let claudePath = findClaude()
+        // Use script to create pseudo-TTY (prevents buffering issues with pipes)
+        let streamingCommand = "cd \(job.localPath) && script -q /dev/null \(claudePath) '/\(job.command) \(job.issueNum)' --print --output-format stream-json --include-partial-messages --verbose --dangerously-skip-permissions"
 
         // Create process with pipes for real-time output
         let process = Process()
@@ -73,16 +138,19 @@ public actor ClaudeService {
         }
         process.environment = env
 
-        // Set up pipes for streaming output
+        // Set up pipes for streaming I/O
+        let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
+        process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
         process.qualityOfService = .userInitiated
 
-        // Store process reference
+        // Store process and stdin pipe references for interactive control
         runningProcesses[job.id] = process
+        stdinPipes[job.id] = stdinPipe
 
         // Create/clear log file
         FileManager.default.createFile(atPath: job.logPath, contents: nil)
@@ -130,6 +198,7 @@ public actor ClaudeService {
 
             process.waitUntilExit()
             runningProcesses.removeValue(forKey: job.id)
+            stdinPipes.removeValue(forKey: job.id)
 
             if process.terminationStatus == 0 {
                 // Check if the issue now has a "blocked" label (agent detected a blocker)
@@ -137,7 +206,7 @@ public actor ClaudeService {
 
                 if isBlocked {
                     // Job exited successfully but detected a blocker - mark as blocked
-                    try await app.firestoreService.updateJobStatus(id: job.id, status: .blocked)
+                    try await app.persistenceService.updateJobStatus(id: job.id, status: JobStatus.blocked, error: nil as String?)
                     app.logger.info("[\(job.id)] Job completed but issue has 'blocked' label - marking as blocked")
 
                     // Broadcast blocked status via WebSocket (per-job)
@@ -169,15 +238,16 @@ public actor ClaudeService {
                     )
                     app.webSocketManager.broadcastGlobal(blockedEvent)
 
+                    let blockedCommandName = job.command.replacingOccurrences(of: "-headless", with: "").capitalized
                     await app.pushNotificationService.send(
-                        title: "Job Blocked",
-                        body: "\(job.id) needs attention"
+                        title: "Blocked - #\(job.issueNum)",
+                        body: "\(blockedCommandName) needs attention: \(job.issueTitle.prefix(30))"
                     )
                     return
                 }
 
                 // Update job with session ID and cost data
-                try await app.firestoreService.updateJobCompleted(
+                try await app.persistenceService.updateJobCompleted(
                     id: job.id,
                     sessionId: sessionId,
                     cost: costData
@@ -220,20 +290,22 @@ public actor ClaudeService {
                 // Sync the issue title from GitHub
                 if let updatedTitle = await fetchIssueTitle(repo: job.repo, issueNum: job.issueNum) {
                     if updatedTitle != job.issueTitle {
-                        try? await app.firestoreService.updateJobIssueTitle(id: job.id, newTitle: updatedTitle)
+                        try? await app.persistenceService.updateJobIssueTitle(id: job.id, newTitle: updatedTitle)
                         app.logger.info("[\(job.id)] Updated issue title: \(updatedTitle)")
                     }
                 }
 
+                let completedCommandName = job.command.replacingOccurrences(of: "-headless", with: "").capitalized
+                let costStr = String(format: "$%.2f", costData?.totalUsd ?? 0)
                 await app.pushNotificationService.send(
-                    title: "Job Complete",
-                    body: "\(job.id) finished - $\(String(format: "%.4f", costData?.totalUsd ?? 0))"
+                    title: "\(completedCommandName) Complete - #\(job.issueNum)",
+                    body: "\(job.issueTitle.prefix(35)) (\(costStr))"
                 )
             } else {
                 let errorMsg = "Exit code: \(process.terminationStatus)"
-                try await app.firestoreService.updateJobStatus(
+                try await app.persistenceService.updateJobStatus(
                     id: job.id,
-                    status: .failed,
+                    status: JobStatus.failed,
                     error: errorMsg
                 )
 
@@ -261,8 +333,9 @@ public actor ClaudeService {
             }
         } catch {
             runningProcesses.removeValue(forKey: job.id)
+            stdinPipes.removeValue(forKey: job.id)
             app.logger.error("[\(job.id)] Error: \(error)")
-            try? await app.firestoreService.updateJobStatus(id: job.id, status: .failed, error: error.localizedDescription)
+            try? await app.persistenceService.updateJobStatus(id: job.id, status: JobStatus.failed, error: error.localizedDescription)
             appendToLog(job.logPath, text: "\nError: \(error)\n")
 
             // Broadcast error (per-job)
@@ -504,6 +577,11 @@ public actor ClaudeService {
     public func terminateProcess(_ jobId: String) {
         guard let process = runningProcesses[jobId] else { return }
 
+        // Close stdin pipe first to signal EOF
+        if let stdinPipe = stdinPipes[jobId] {
+            try? stdinPipe.fileHandleForWriting.close()
+        }
+
         // Try to kill the process group
         let pid = process.processIdentifier
         if pid > 0 {
@@ -512,6 +590,7 @@ public actor ClaudeService {
 
         process.terminate()
         runningProcesses.removeValue(forKey: jobId)
+        stdinPipes.removeValue(forKey: jobId)
     }
 
     /// Check if a job process is running
@@ -520,7 +599,8 @@ public actor ClaudeService {
     }
 
     /// Read log file contents
-    public func readLog(path: String, stripANSI: Bool = true) -> String {
+    /// Nonisolated since it only does file I/O
+    public nonisolated func readLog(path: String, stripANSI: Bool = true) -> String {
         guard let content = try? String(contentsOfFile: path, encoding: .utf8) else {
             return "Waiting for output..."
         }
@@ -532,7 +612,8 @@ public actor ClaudeService {
     }
 
     /// Read last N lines of log file
-    public func readLogTail(path: String, lines: Int = 50, stripANSI: Bool = true) -> [String] {
+    /// Nonisolated since it only does file I/O
+    public nonisolated func readLogTail(path: String, lines: Int = 50, stripANSI: Bool = true) -> [String] {
         guard let content = try? String(contentsOfFile: path, encoding: .utf8) else {
             return []
         }
@@ -549,7 +630,7 @@ public actor ClaudeService {
     }
 
     /// Strip ANSI escape codes from text
-    private func stripANSICodes(_ text: String) -> String {
+    private nonisolated func stripANSICodes(_ text: String) -> String {
         // Match common ANSI escape sequences
         let pattern = #"\x1b\[[^a-zA-Z]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[<>=()].|\r"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
@@ -629,7 +710,8 @@ public actor ClaudeService {
     }
 
     /// Extract PR URL from log content
-    public func extractPRUrl(from logPath: String) -> String? {
+    /// Nonisolated since it only does file I/O and doesn't need actor state
+    public nonisolated func extractPRUrl(from logPath: String) -> String? {
         guard let content = try? String(contentsOfFile: logPath, encoding: .utf8) else {
             return nil
         }

@@ -31,7 +31,7 @@ cd /Users/leew/GitRepo/claude-ops
 
 **Expected output:**
 ```
-[Firestore] Initialized with project: agent-command-center-bf2b7
+[Firestore] Initialized with project: your-project-id
 Server starting on http://0.0.0.0:5001
 ```
 

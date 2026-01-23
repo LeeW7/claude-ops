@@ -126,6 +126,44 @@ public struct Job: Content, Identifiable, Hashable, Equatable {
         self.updatedAt = Date()
     }
 
+    /// Restore a job from persistence (all fields explicit)
+    public init(
+        id: String,
+        repo: String,
+        repoSlug: String,
+        issueNum: Int,
+        issueTitle: String,
+        command: String,
+        status: JobStatus,
+        startTime: Int,
+        completedTime: Int?,
+        logPath: String,
+        localPath: String,
+        fullCommand: String,
+        error: String?,
+        sessionId: String?,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.repo = repo
+        self.repoSlug = repoSlug
+        self.issueNum = issueNum
+        self.issueTitle = issueTitle
+        self.command = command
+        self.status = status
+        self.startTime = startTime
+        self.completedTime = completedTime
+        self.logPath = logPath
+        self.localPath = localPath
+        self.fullCommand = fullCommand
+        self.error = error
+        self.cost = nil
+        self.sessionId = sessionId
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
     /// Coding keys for JSON/Firestore
     enum CodingKeys: String, CodingKey {
         case id

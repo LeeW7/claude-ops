@@ -4,7 +4,7 @@ import Foundation
 /// Service for managing git worktrees for parallel job execution
 public actor WorktreeService {
     private weak var app: Application?
-    private let firestoreService: FirestoreService
+    private let persistenceService: any PersistenceService
 
     /// Base directory for all worktrees
     private let worktreeBaseDir: String
@@ -30,9 +30,9 @@ public actor WorktreeService {
         }
     }
 
-    public init(app: Application, firestoreService: FirestoreService) {
+    public init(app: Application, persistenceService: any PersistenceService) {
         self.app = app
-        self.firestoreService = firestoreService
+        self.persistenceService = persistenceService
         self.worktreeBaseDir = "/tmp/claude-ops-worktrees"
 
         // Ensure base directory exists
@@ -42,24 +42,24 @@ public actor WorktreeService {
         )
     }
 
-    /// Load worktrees from Firebase on startup
-    public func loadFromFirebase() async {
+    /// Load worktrees from persistence on startup
+    public func loadFromPersistence() async {
         do {
-            let worktrees = try await firestoreService.getAllWorktrees()
+            let worktrees = try await persistenceService.getAllWorktrees()
             for worktree in worktrees {
                 // Only load if the path still exists on disk
                 if FileManager.default.fileExists(atPath: worktree.path) {
                     activeWorktrees[worktree.issueKey] = worktree
                     app?.logger.info("[Worktree] Loaded from Firebase: \(worktree.issueKey)")
                 } else {
-                    // Path doesn't exist anymore, clean up Firebase
-                    try? await firestoreService.deleteWorktree(issueKey: worktree.issueKey)
-                    app?.logger.info("[Worktree] Cleaned stale Firebase entry: \(worktree.issueKey)")
+                    // Path doesn't exist anymore, clean up persistence
+                    try? await persistenceService.deleteWorktree(issueKey: worktree.issueKey)
+                    app?.logger.info("[Worktree] Cleaned stale persistence entry: \(worktree.issueKey)")
                 }
             }
-            app?.logger.info("[Worktree] Loaded \(activeWorktrees.count) worktrees from Firebase")
+            app?.logger.info("[Worktree] Loaded \(activeWorktrees.count) worktrees from persistence")
         } catch {
-            app?.logger.error("[Worktree] Failed to load from Firebase: \(error)")
+            app?.logger.error("[Worktree] Failed to load from persistence: \(error)")
         }
     }
 
@@ -104,7 +104,7 @@ public actor WorktreeService {
                 activeWorktrees[issueKey] = info
 
                 // Save to Firebase
-                try? await firestoreService.saveWorktree(info)
+                try? await persistenceService.saveWorktree(info)
 
                 return expectedPath
             } else {
@@ -225,7 +225,7 @@ public actor WorktreeService {
         activeWorktrees[issueKey] = info
 
         // Save to Firebase
-        try? await firestoreService.saveWorktree(info)
+        try? await persistenceService.saveWorktree(info)
 
         app?.logger.info("[Worktree] Created worktree for \(issueKey) at \(worktreePath)")
 
@@ -292,7 +292,7 @@ public actor WorktreeService {
         activeWorktrees.removeValue(forKey: issueKey)
 
         // Delete from Firebase
-        try? await firestoreService.deleteWorktree(issueKey: issueKey)
+        try? await persistenceService.deleteWorktree(issueKey: issueKey)
 
         // Optionally delete the branch
         let deleteBranch = Process()

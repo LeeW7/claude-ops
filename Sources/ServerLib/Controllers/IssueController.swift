@@ -109,7 +109,7 @@ struct IssueController: RouteCollection {
         let (repo, issueNum) = try parseRepoAndIssue(req)
 
         // Get all jobs for this issue
-        let jobs = try await req.application.firestoreService.getJobsForIssue(repo: repo, issueNum: issueNum)
+        let jobs = try await req.application.persistenceService.getJobsForIssue(repo: repo, issueNum: issueNum)
 
         // Check if issue is closed
         let issueClosed = try await req.application.githubService.isIssueClosed(repo: repo, number: issueNum)
@@ -137,7 +137,7 @@ struct IssueController: RouteCollection {
         let (repo, issueNum) = try parseRepoAndIssue(req)
 
         // Get current workflow state (these are needed to validate the request)
-        let jobs = try await req.application.firestoreService.getJobsForIssue(repo: repo, issueNum: issueNum)
+        let jobs = try await req.application.persistenceService.getJobsForIssue(repo: repo, issueNum: issueNum)
         let issueClosed = try await req.application.githubService.isIssueClosed(repo: repo, number: issueNum)
         let state = WorkflowState.forIssue(repo: repo, issueNum: issueNum, jobs: jobs, issueClosed: issueClosed, prUrl: nil)
 
@@ -198,7 +198,7 @@ struct IssueController: RouteCollection {
         }
 
         // Get current workflow state to determine which job to trigger
-        let jobs = try await req.application.firestoreService.getJobsForIssue(repo: repo, issueNum: issueNum)
+        let jobs = try await req.application.persistenceService.getJobsForIssue(repo: repo, issueNum: issueNum)
         let issueClosed = try await req.application.githubService.isIssueClosed(repo: repo, number: issueNum)
         let state = WorkflowState.forIssue(repo: repo, issueNum: issueNum, jobs: jobs, issueClosed: issueClosed, prUrl: nil)
 
@@ -347,7 +347,7 @@ struct IssueController: RouteCollection {
         let (repo, issueNum) = try parseRepoAndIssue(req)
 
         // Get all jobs for this issue
-        let jobs = try await req.application.firestoreService.getJobsForIssue(repo: repo, issueNum: issueNum)
+        let jobs = try await req.application.persistenceService.getJobsForIssue(repo: repo, issueNum: issueNum)
 
         // Build cost breakdown by phase
         var phaseCosts: [PhaseCost] = []

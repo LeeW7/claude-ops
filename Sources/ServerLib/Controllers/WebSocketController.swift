@@ -80,7 +80,7 @@ struct WebSocketController: RouteCollection {
 
         // Try to get current job status asynchronously
         Task {
-            if let job = try? await req.application.firestoreService.getJobFuzzy(id: jobId) {
+            if let job = try? await req.application.persistenceService.getJobFuzzy(id: jobId) {
                 let statusMessage = StreamMessage(
                     type: .statusChange,
                     jobId: jobId,
@@ -92,7 +92,7 @@ struct WebSocketController: RouteCollection {
 
         // Handle incoming messages from client
         ws.onText { ws, text in
-            handleClientMessage(wsManager: wsManager, ws: ws, eventLoop: eventLoop, jobId: jobId, text: text, logger: req.logger)
+            handleClientMessage(wsManager: wsManager, ws: ws, eventLoop: eventLoop, jobId: jobId, text: text, logger: req.logger, app: req.application)
         }
 
         // Handle disconnect
@@ -103,7 +103,7 @@ struct WebSocketController: RouteCollection {
     }
 
     /// Handle messages from WebSocket client
-    private func handleClientMessage(wsManager: WebSocketManager, ws: WebSocket, eventLoop: EventLoop, jobId: String, text: String, logger: Logger) {
+    private func handleClientMessage(wsManager: WebSocketManager, ws: WebSocket, eventLoop: EventLoop, jobId: String, text: String, logger: Logger, app: Application) {
         // Parse client message
         guard let data = text.data(using: .utf8),
               let message = try? JSONDecoder().decode(ClientMessage.self, from: data) else {
@@ -112,10 +112,27 @@ struct WebSocketController: RouteCollection {
 
         switch message.type {
         case "user_input":
-            // Forward user input to Claude (Phase 2)
+            // Forward user input to Claude process stdin
             if let content = message.content {
                 logger.info("[WebSocket] User input for job \(jobId): \(content.prefix(50))...")
-                // TODO: Forward to ClaudeService stdin
+
+                // Send to Claude process asynchronously
+                Task {
+                    let success = await app.claudeService.sendInput(jobId: jobId, text: content)
+
+                    // Notify client of result
+                    let response: [String: Any] = [
+                        "type": "input_received",
+                        "success": success,
+                        "jobId": jobId
+                    ]
+                    if let responseData = try? JSONSerialization.data(withJSONObject: response),
+                       let responseText = String(data: responseData, encoding: .utf8) {
+                        eventLoop.execute {
+                            ws.send(responseText, promise: nil)
+                        }
+                    }
+                }
             }
 
         case "ping":
