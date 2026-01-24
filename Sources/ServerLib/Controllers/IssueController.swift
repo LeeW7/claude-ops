@@ -43,16 +43,19 @@ struct IssueController: RouteCollection {
         )
 
         // Extract issue number from URL (e.g., "https://github.com/owner/repo/issues/123")
-        // and immediately trigger the job
+        // and trigger the job in background (don't block the response)
         if let lastComponent = issueUrl.split(separator: "/").last,
            let issueNum = Int(lastComponent) {
-            await req.application.jobTriggerService.triggerJob(
-                repo: body.repo,
-                issueNum: issueNum,
-                issueTitle: body.title,
-                command: "plan-headless",
-                cmdLabel: "cmd:plan-headless"
-            )
+            let app = req.application
+            Task {
+                await app.jobTriggerService.triggerJob(
+                    repo: body.repo,
+                    issueNum: issueNum,
+                    issueTitle: body.title,
+                    command: "plan-headless",
+                    cmdLabel: "cmd:plan-headless"
+                )
+            }
         }
 
         let response = CreateIssueResponse(
