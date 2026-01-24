@@ -77,14 +77,13 @@ public actor GoogleAuthService {
             exp: expiry
         )
 
-        // Parse the private key
+        // Parse the private key and create signer (jwt-kit 4.x API)
         let privateKeyPEM = serviceAccount.privateKey
-        let keys = JWTKeyCollection()
-        let rsaKey = try Insecure.RSA.PrivateKey(pem: privateKeyPEM)
-        await keys.add(rsa: rsaKey, digestAlgorithm: .sha256, kid: "service-account")
+        let rsaKey = try RSAKey.private(pem: privateKeyPEM)
+        let signer = JWTSigner.rs256(key: rsaKey)
 
         // Sign the JWT
-        let jwt = try await keys.sign(claims, kid: "service-account")
+        let jwt = try signer.sign(claims)
         return jwt
     }
 }
@@ -120,11 +119,9 @@ struct GoogleJWTClaims: JWTPayload {
     let iat: Date
     let exp: Date
 
-    func verify(using algorithm: some JWTAlgorithm) async throws {
-        // Verify expiration
-        guard exp > Date() else {
-            throw JWTError.claimVerificationFailure(failedClaim: ExpirationClaim(value: exp), reason: "Token has expired")
-        }
+    func verify(using signer: JWTSigner) throws {
+        // Verify expiration - for signing only, no verification needed
+        // The JWT is created fresh each time with a 1-hour expiry
     }
 }
 

@@ -1,0 +1,33 @@
+template_repo: github.com/LeeW7/workflow-templates
+template_version: "9788911"
+issue_tracker: github
+integration_method: cli
+github_org: LeeW7
+headless_commands: true
+claude_md_hash: sha256:71f75667ffae7dcff56bce2bce99b2052b870e2d7174d647d0447180bbcb17bc
+file_hashes:
+    agents/agent-factory.md: sha256:ddd2d077868adb38da687aebefa171b62ce6ad387c1b465603d46bb112637c22
+    agents/orchestrator.md: sha256:93e90831b86341e80fcc5822edd821ad64ed9d922b5aa395c3a1c372eef381fd
+    commands/agent-factory.md: sha256:268d37e297186452ef7179be57598d8c8f2c14308d23531b25f67a65f9224bd4
+    commands/gen-tests.md: sha256:1a15428ac4ef14e2b9ce5fc88df22256bb35ef27e708de7454ccba62500f8bf9
+    commands/gen-zephyr-tests.md: sha256:17c89793700c702d46d552bc0eb2d8ce8408f6d1ffe66681893ddaf5d97f40d7
+    commands/implement-headless.md: sha256:f4c77df370f16558d6ee191f72996b2c5882d68a8e2d306ea950677204c165e2
+    commands/implement.md: sha256:25547e6b7ba57a7278077ae59c191bd21b42ad71ec7ba77592e2a2ac62a64e29
+    commands/plan-headless.md: sha256:c2591d7f78543fea6269826019f0a6d014123af2b573383b5c878c82e82e5018
+    commands/plan.md: sha256:9221f558698833a313ab9a9230374706fb212ff3e181a94d078468e87d7ad716
+    commands/retrospective-headless.md: sha256:662925156c1541e1fa4e71a1813004d9ca58856ed39104dce86b93b42604048b
+    commands/retrospective.md: sha256:f29d7957c235be66f2349293cbeb414a19fe21f1ea53be4b182f42e8e029454a
+    commands/review-pr.md: sha256:cac0196aed30c6564709e7c57127c78e5ab72692ef41dff623c2a30090c8a019
+    commands/revise-headless.md: sha256:e0acf96a6d6f005b5354ac2c01430a8c231700b9e1aa4bf920938b2b5ffb2da5
+    commands/ship.md: sha256:34a68adc0d6f19b967817168feb2036347c170947ca28da34c8d2056eb463e76
+    retrospectives/cumulative-stats.json: sha256:80a43ab0af6e6fa2a22a7eae3965322ea30b34cc54f3dad41824adf4cc9292ff
+    retrospectives/index.md: sha256:927dfebf63df4bf2004b87d5be26df1a0c8c73b85d8374c313885372e04c31fb
+    skills/ai-statistics.md: sha256:ac0b605a751a885a2b14ee06533f67adc69491ced7ca0d52be2953abd1c18e86
+    skills/git-workflow.md: sha256:e97f2c34c14822c719d7ab4a155d91f391eff9bf16a64441f6872f39888900b1
+    skills/jira.md: sha256:91dbb709cf306a1601ae77bff590bf49f0f3dff538679cc3ba30604436cb171a
+    skills/patterns.md: sha256:ca3beae02fa7523f65a2befb371f389f6e9e432ed28a409208bffd7292aca4cc
+    skills/quality-gates.md: sha256:f618514be2c4bd50de9f630aa419d79506a750593386a1325feb609a88e08fe6
+    skills/state-management.md: sha256:0f589fb142a6f45f6fc1693b25a486f5fac0b0a027fc1f9ef78f7ddc1ce71cd0
+    state-template.md: sha256:35114f8283f124e3c239c7d7ff6b4ffe16e6f0968cbfc0f7f6cdcd07952c3c0d
+installed_at: "2026-01-24T11:31:17-06:00"
+updated_at: "2026-01-24T12:40:10-06:00"

@@ -260,4 +260,49 @@ public struct GitHubService {
 
         return rawURL
     }
+
+    // MARK: - Label Management
+
+    /// Required labels for Claude Ops functionality
+    public static let requiredLabels: [(name: String, description: String, color: String)] = [
+        ("cmd:plan-headless", "Trigger Claude to plan this issue", "0E8A16"),
+        ("cmd:implement-headless", "Trigger Claude to implement this issue", "1D76DB"),
+        ("ready-for-review", "Ready for code review", "0E8A16"),
+    ]
+
+    /// Ensure required labels exist on a repository
+    func ensureRequiredLabels(repo: String) async -> [String] {
+        var created: [String] = []
+
+        for label in Self.requiredLabels {
+            // Try to create the label - will fail silently if it exists
+            let output = try? await runGH([
+                "label", "create", label.name,
+                "--repo", repo,
+                "--description", label.description,
+                "--color", label.color
+            ])
+
+            // Check if we created it (no error about already exists)
+            if let output = output, !output.contains("already exists") {
+                created.append(label.name)
+            }
+        }
+
+        return created
+    }
+
+    /// Validate all repos in the repo map have required labels
+    func validateRepos(repos: [String]) async -> [String: [String]] {
+        var results: [String: [String]] = [:]
+
+        for repo in repos {
+            let created = await ensureRequiredLabels(repo: repo)
+            if !created.isEmpty {
+                results[repo] = created
+            }
+        }
+
+        return results
+    }
 }

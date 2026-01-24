@@ -97,6 +97,11 @@ public struct RepoMap {
         return nil
     }
 
+    /// Get all repo full names (e.g., ["owner/repo1", "owner/repo2"])
+    public func allRepos() -> [String] {
+        return allRepositories().map { $0.fullName }
+    }
+
     /// Get all repositories as a list
     public func allRepositories() -> [Repository] {
         return mapping.map { (folderPath, repoUrl) in

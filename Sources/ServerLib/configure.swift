@@ -52,6 +52,35 @@ public func configure(_ app: Application) async throws {
     let repoMapPath = app.directory.workingDirectory + "repo_map.json"
     app.repoMap = try? RepoMap.load(from: repoMapPath)
 
+    // Validate repos have required labels and local commands (run in background)
+    if let repoMap = app.repoMap {
+        let repositories = repoMap.allRepositories()
+        let githubService = app.githubService
+        Task {
+            // Validate GitHub labels
+            app.logger.info("[Setup] Validating \(repositories.count) repositories have required labels...")
+            let labelResults = await githubService.validateRepos(repos: repositories.map { $0.fullName })
+            if labelResults.isEmpty {
+                app.logger.info("[Setup] All repositories have required GitHub labels")
+            } else {
+                for (repo, labels) in labelResults {
+                    app.logger.info("[Setup] Created labels on \(repo): \(labels.joined(separator: ", "))")
+                }
+            }
+
+            // Validate local slash commands exist
+            app.logger.info("[Setup] Validating local repositories have required slash commands...")
+            let commandResults = validateLocalCommands(repositories: repositories)
+            if commandResults.isEmpty {
+                app.logger.info("[Setup] All repositories have required slash commands")
+            } else {
+                for (repo, missing) in commandResults {
+                    app.logger.warning("[Setup] \(repo) missing commands: \(missing.joined(separator: ", "))")
+                }
+            }
+        }
+    }
+
     // Start polling job
     let pollingJob = PollingJob(app: app)
     Task {
@@ -60,6 +89,41 @@ public func configure(_ app: Application) async throws {
 
     // Register routes
     try routes(app)
+}
+
+// MARK: - Local Command Validation
+
+/// Required slash commands for Claude Ops workflow
+private let requiredCommands = [
+    "plan-headless.md",
+    "implement-headless.md",
+    "retrospective-headless.md",
+    "revise-headless.md"
+]
+
+/// Validate that local repositories have the required slash commands
+/// Returns a dictionary of repo name -> missing commands
+private func validateLocalCommands(repositories: [Repository]) -> [String: [String]] {
+    var results: [String: [String]] = [:]
+    let fileManager = FileManager.default
+
+    for repo in repositories {
+        let commandsDir = repo.path + "/.claude/commands"
+        var missing: [String] = []
+
+        for command in requiredCommands {
+            let commandPath = commandsDir + "/" + command
+            if !fileManager.fileExists(atPath: commandPath) {
+                missing.append(command)
+            }
+        }
+
+        if !missing.isEmpty {
+            results[repo.fullName] = missing
+        }
+    }
+
+    return results
 }
 
 // MARK: - Application Storage Keys
