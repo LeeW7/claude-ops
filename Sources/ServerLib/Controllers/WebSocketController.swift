@@ -14,6 +14,11 @@ struct WebSocketController: RouteCollection {
         routes.webSocket("ws", "events") { req, ws in
             handleGlobalEvents(req: req, ws: ws)
         }
+
+        // WebSocket endpoint for quick session streaming
+        routes.webSocket("ws", "sessions", ":sessionId") { req, ws in
+            handleSessionStream(req: req, ws: ws)
+        }
     }
 
     /// Handle global WebSocket connection for all job events
@@ -144,6 +149,133 @@ struct WebSocketController: RouteCollection {
         default:
             break
         }
+    }
+
+    /// Handle WebSocket connection for quick session streaming
+    private func handleSessionStream(req: Request, ws: WebSocket) {
+        guard let sessionId = req.parameters.get("sessionId") else {
+            _ = ws.close(code: .policyViolation)
+            return
+        }
+
+        let quickSessionService = req.application.quickSessionService
+        let eventLoop = req.eventLoop
+
+        // Add this connection
+        Task {
+            await quickSessionService.addConnection(ws, eventLoop: eventLoop, forSession: sessionId)
+        }
+
+        req.logger.info("[WebSocket] Client connected for session: \(sessionId)")
+
+        // Send initial connection message
+        let welcome: [String: Any] = ["type": "connected"]
+        if let data = try? JSONSerialization.data(withJSONObject: welcome),
+           let text = String(data: data, encoding: .utf8) {
+            eventLoop.execute {
+                ws.send(text, promise: nil)
+            }
+        }
+
+        // Try to get current session status asynchronously
+        Task {
+            if let session = try? await quickSessionService.getSession(id: sessionId) {
+                let statusMessage: [String: Any] = [
+                    "type": "statusChange",
+                    "data": ["status": session.status.rawValue]
+                ]
+                if let data = try? JSONSerialization.data(withJSONObject: statusMessage),
+                   let text = String(data: data, encoding: .utf8) {
+                    eventLoop.execute {
+                        ws.send(text, promise: nil)
+                    }
+                }
+            }
+        }
+
+        // Handle incoming messages from client
+        ws.onText { ws, text in
+            handleSessionClientMessage(
+                quickSessionService: quickSessionService,
+                ws: ws,
+                eventLoop: eventLoop,
+                sessionId: sessionId,
+                text: text,
+                logger: req.logger
+            )
+        }
+
+        // Handle disconnect
+        ws.onClose.whenComplete { _ in
+            Task {
+                await quickSessionService.removeConnection(ws, forSession: sessionId)
+            }
+            req.logger.info("[WebSocket] Client disconnected from session: \(sessionId)")
+        }
+    }
+}
+
+/// Handle messages from WebSocket client for quick sessions
+private func handleSessionClientMessage(
+    quickSessionService: QuickSessionService,
+    ws: WebSocket,
+    eventLoop: EventLoop,
+    sessionId: String,
+    text: String,
+    logger: Logger
+) {
+    // Parse client message
+    guard let data = text.data(using: .utf8),
+          let message = try? JSONDecoder().decode(ClientMessage.self, from: data) else {
+        return
+    }
+
+    switch message.type {
+    case "user_input":
+        // Send message to Claude
+        if let content = message.content {
+            logger.info("[WebSocket] User input for session \(sessionId): \(content.prefix(50))...")
+
+            Task {
+                do {
+                    _ = try await quickSessionService.sendMessage(sessionId: sessionId, content: content)
+
+                    // Notify client message was received
+                    let response: [String: Any] = [
+                        "type": "input_received",
+                        "success": true,
+                        "sessionId": sessionId
+                    ]
+                    if let responseData = try? JSONSerialization.data(withJSONObject: response),
+                       let responseText = String(data: responseData, encoding: .utf8) {
+                        eventLoop.execute {
+                            ws.send(responseText, promise: nil)
+                        }
+                    }
+                } catch {
+                    // Notify client of error
+                    let response: [String: Any] = [
+                        "type": "error",
+                        "content": error.localizedDescription
+                    ]
+                    if let responseData = try? JSONSerialization.data(withJSONObject: response),
+                       let responseText = String(data: responseData, encoding: .utf8) {
+                        eventLoop.execute {
+                            ws.send(responseText, promise: nil)
+                        }
+                    }
+                }
+            }
+        }
+
+    case "ping":
+        // Respond with pong
+        eventLoop.execute {
+            ws.send("{\"type\":\"pong\"}", promise: nil)
+        }
+
+    default:
+        break
     }
 }
 

@@ -1,20 +1,27 @@
 import SwiftUI
 import ServerLib
 
-extension String {
+fileprivate extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
     }
+}
+
+enum LogViewType: String, CaseIterable {
+    case jobs = "Jobs"
+    case sessions = "Quick Sessions"
 }
 
 struct LogsView: View {
     @EnvironmentObject var serverManager: ServerManager
     @EnvironmentObject var appState: AppState
     @State private var selectedJob: Job?
+    @State private var selectedSession: QuickSession?
     @State private var logContent: String = ""
     @State private var searchText: String = ""
     @State private var statusFilter: JobStatus?
     @State private var autoRefresh = true
+    @State private var viewType: LogViewType = .jobs
 
     var filteredJobs: [Job] {
         var jobs = serverManager.jobs
@@ -57,10 +64,23 @@ struct LogsView: View {
                 }
             }
         }
+        .onChange(of: selectedSession) { _, newSession in
+            if let session = newSession {
+                Task {
+                    logContent = await serverManager.getSessionLogs(session)
+                }
+            }
+        }
         .onChange(of: appState.selectedJobId) { _, jobId in
             if let jobId = jobId {
                 selectedJob = serverManager.jobs.first { $0.id == jobId }
             }
+        }
+        .onChange(of: viewType) { _, _ in
+            // Clear selection when switching views
+            selectedJob = nil
+            selectedSession = nil
+            logContent = ""
         }
         .task {
             await refreshLoop()
@@ -69,12 +89,52 @@ struct LogsView: View {
 
     private var sidebarContent: some View {
         VStack(spacing: 0) {
+            // View type picker
+            Picker("View", selection: $viewType) {
+                ForEach(LogViewType.allCases, id: \.self) { type in
+                    Text(type.rawValue).tag(type)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(8)
+
             searchBar
-            filterChips
+
+            if viewType == .jobs {
+                filterChips
+            }
+
             Divider()
-            jobList
+
+            if viewType == .jobs {
+                jobList
+            } else {
+                sessionList
+            }
         }
         .frame(minWidth: 250)
+    }
+
+    private var sessionList: some View {
+        List(filteredSessions, selection: $selectedSession) { session in
+            SessionListRow(session: session)
+                .tag(session)
+        }
+        .listStyle(.sidebar)
+    }
+
+    var filteredSessions: [QuickSession] {
+        var sessions = serverManager.quickSessions
+
+        if !searchText.isEmpty {
+            let search = searchText
+            sessions = sessions.filter { session in
+                session.repo.localizedCaseInsensitiveContains(search) ||
+                session.id.localizedCaseInsensitiveContains(search)
+            }
+        }
+
+        return sessions.sorted { $0.lastActivity > $1.lastActivity }
     }
 
     private var searchBar: some View {
@@ -119,21 +179,37 @@ struct LogsView: View {
 
     @ViewBuilder
     private var detailContent: some View {
-        if let job = selectedJob {
-            JobDetailView(job: job, logContent: $logContent, autoRefresh: $autoRefresh)
+        if viewType == .jobs {
+            if let job = selectedJob {
+                JobDetailView(job: job, logContent: $logContent, autoRefresh: $autoRefresh)
+            } else {
+                ContentUnavailableView(
+                    "Select a Job",
+                    systemImage: "doc.text",
+                    description: Text("Choose a job from the sidebar to view its logs")
+                )
+            }
         } else {
-            ContentUnavailableView(
-                "Select a Job",
-                systemImage: "doc.text",
-                description: Text("Choose a job from the sidebar to view its logs")
-            )
+            if let session = selectedSession {
+                SessionDetailView(session: session, logContent: $logContent, autoRefresh: $autoRefresh)
+            } else {
+                ContentUnavailableView(
+                    "Select a Session",
+                    systemImage: "bubble.left.and.bubble.right",
+                    description: Text("Choose a quick session from the sidebar to view its logs")
+                )
+            }
         }
     }
 
     private func refreshLoop() async {
         while !Task.isCancelled {
-            if autoRefresh, let job = selectedJob {
-                logContent = await serverManager.getJobLogs(job)
+            if autoRefresh {
+                if viewType == .jobs, let job = selectedJob {
+                    logContent = await serverManager.getJobLogs(job)
+                } else if viewType == .sessions, let session = selectedSession {
+                    logContent = await serverManager.getSessionLogs(session)
+                }
             }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
@@ -323,8 +399,9 @@ struct JobDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 // PR Link if available
-                if let prUrl = summary?.prUrl {
-                    Link(destination: URL(string: prUrl)!) {
+                if let prUrl = summary?.prUrl,
+                   let url = URL(string: prUrl) {
+                    Link(destination: url) {
                         HStack {
                             Image(systemName: "arrow.triangle.pull")
                             Text("View Pull Request")
@@ -461,6 +538,204 @@ struct StatusBadge: View {
         case .interrupted: return .purple
         case .approvedResume: return .cyan
         case .blocked: return .orange
+        }
+    }
+}
+
+// MARK: - Quick Session Views
+
+struct SessionListRow: View {
+    let session: QuickSession
+
+    var body: some View {
+        HStack {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.repo)
+                    .font(.caption)
+                    .fontWeight(.bold)
+
+                Text(session.id)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                HStack {
+                    Text("\(session.messageCount) msgs")
+                    Text("•")
+                    Text(formattedCost)
+                    Text("•")
+                    Text(formattedTime)
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var statusColor: Color {
+        switch session.status {
+        case .running: return .blue
+        case .idle: return .green
+        case .failed: return .red
+        case .expired: return .gray
+        }
+    }
+
+    private var formattedCost: String {
+        String(format: "$%.3f", session.totalCostUsd)
+    }
+
+    private var formattedTime: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: session.lastActivity, relativeTo: Date())
+    }
+}
+
+struct SessionDetailView: View {
+    let session: QuickSession
+    @Binding var logContent: String
+    @Binding var autoRefresh: Bool
+    @EnvironmentObject var serverManager: ServerManager
+    @State private var showingCopiedAlert = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            headerSection
+            Divider()
+            logSection
+            Divider()
+            footerSection
+        }
+    }
+
+    private var headerSection: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(session.repo)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    SessionStatusBadge(status: session.status)
+                }
+
+                Text(session.id)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 12) {
+                    Text("\(session.messageCount) messages")
+                    Text("•")
+                    Text(String(format: "$%.4f", session.totalCostUsd))
+                        .foregroundStyle(.green)
+                    Text("•")
+                    Text(formattedTime)
+                }
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+
+            Button {
+                Task {
+                    await serverManager.deleteSession(session)
+                }
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .buttonStyle(.bordered)
+            .tint(.red)
+        }
+        .padding()
+        .background(.background.secondary)
+    }
+
+    private var logSection: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                Text(logContent.isEmpty ? "No logs yet..." : logContent)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .id("logBottom")
+            }
+            .onChange(of: logContent) { _, _ in
+                if autoRefresh {
+                    withAnimation {
+                        proxy.scrollTo("logBottom", anchor: .bottom)
+                    }
+                }
+            }
+        }
+    }
+
+    private var footerSection: some View {
+        HStack {
+            Button {
+                copyLogs()
+            } label: {
+                Label(showingCopiedAlert ? "Copied!" : "Copy Logs", systemImage: "doc.on.doc")
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            if let worktreePath = session.worktreePath {
+                Button {
+                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: worktreePath)
+                } label: {
+                    Label("Open Folder", systemImage: "folder")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding()
+    }
+
+    private var formattedTime: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: session.lastActivity, relativeTo: Date())
+    }
+
+    private func copyLogs() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(logContent, forType: .string)
+        showingCopiedAlert = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            showingCopiedAlert = false
+        }
+    }
+}
+
+struct SessionStatusBadge: View {
+    let status: QuickSessionStatus
+
+    var body: some View {
+        Text(status.rawValue.capitalized)
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(statusColor.opacity(0.2))
+            .foregroundStyle(statusColor)
+            .clipShape(Capsule())
+    }
+
+    private var statusColor: Color {
+        switch status {
+        case .running: return .blue
+        case .idle: return .green
+        case .failed: return .red
+        case .expired: return .gray
         }
     }
 }
