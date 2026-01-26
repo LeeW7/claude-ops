@@ -7,7 +7,9 @@ actor PollingJob {
     private weak var app: Application?
     private let pollInterval: TimeInterval = 60 // seconds
     private var pollCount: Int = 0
-    private let worktreeCleanupInterval: Int = 3600 // Run cleanup every hour (3600 polls at 1/sec, but we poll every 60s so 60 polls)
+    private var sessionCleanupCount: Int = 0
+    private let worktreeCleanupInterval: Int = 60 // Run worktree cleanup every hour (60 polls * 60 seconds)
+    private let sessionCleanupInterval: Int = 360 // Run session cleanup every 6 hours (360 polls * 60 seconds)
 
     /// Supported command labels to poll for
     private let cmdLabels = [
@@ -37,6 +39,9 @@ actor PollingJob {
         // Run initial worktree cleanup on startup
         await app.worktreeService.cleanupOldWorktrees(olderThanDays: 7)
 
+        // Run initial quick session cleanup on startup
+        await app.quickSessionService.cleanupExpiredSessions()
+
         app.logger.info("[Polling] Initialization complete, entering main polling loop")
 
         while !Task.isCancelled {
@@ -44,9 +49,16 @@ actor PollingJob {
             pollCount += 1
 
             // Run worktree cleanup every hour (60 polls * 60 seconds = 1 hour)
-            if pollCount >= 60 {
+            if pollCount >= worktreeCleanupInterval {
                 pollCount = 0
                 await app.worktreeService.cleanupOldWorktrees(olderThanDays: 7)
+            }
+
+            // Run quick session cleanup every 6 hours
+            sessionCleanupCount += 1
+            if sessionCleanupCount >= sessionCleanupInterval {
+                sessionCleanupCount = 0
+                await app.quickSessionService.cleanupExpiredSessions()
             }
 
             do {

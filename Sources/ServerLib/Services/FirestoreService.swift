@@ -396,6 +396,48 @@ public actor FirestoreService: PersistenceService {
         )
     }
 
+    // MARK: - Quick Sessions (Local only - not synced to Firestore)
+
+    /// Quick sessions are only stored locally, not in Firestore
+    /// These stub implementations return empty/nil values
+
+    public func getAllQuickSessions() async throws -> [QuickSession] {
+        // Quick sessions not supported in Firestore backend
+        return []
+    }
+
+    public func getQuickSession(id: String) async throws -> QuickSession? {
+        return nil
+    }
+
+    public func getQuickSessionsForRepo(repo: String) async throws -> [QuickSession] {
+        return []
+    }
+
+    public func saveQuickSession(_ session: QuickSession) async throws {
+        // No-op for Firestore backend
+    }
+
+    public func deleteQuickSession(id: String) async throws {
+        // No-op for Firestore backend
+    }
+
+    public func getExpiredQuickSessions(olderThan: Date) async throws -> [QuickSession] {
+        return []
+    }
+
+    public func getQuickMessages(sessionId: String) async throws -> [QuickMessage] {
+        return []
+    }
+
+    public func saveQuickMessage(_ message: QuickMessage) async throws {
+        // No-op for Firestore backend
+    }
+
+    public func deleteQuickMessages(sessionId: String) async throws {
+        // No-op for Firestore backend
+    }
+
     // MARK: - Analytics (Phase 5)
 
     /// Record job cost for analytics

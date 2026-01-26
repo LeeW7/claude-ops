@@ -9,6 +9,7 @@ class ServerManager: ObservableObject {
     @Published var isRunning = false
     @Published var isStarting = false
     @Published var jobs: [Job] = []
+    @Published var quickSessions: [QuickSession] = []
     @Published var repositories: [Repository] = []
     @Published var errorMessage: String?
     @Published var serverUptime: TimeInterval = 0
@@ -171,6 +172,12 @@ class ServerManager: ObservableObject {
                     self.repositories = repoMap.allRepositories()
                 }
             }
+
+            // Load quick sessions
+            let sessions = try await app.quickSessionService.getAllSessions()
+            await MainActor.run {
+                self.quickSessions = sessions
+            }
         } catch {
             print("Error refreshing data: \(error)")
         }
@@ -221,6 +228,32 @@ class ServerManager: ObservableObject {
         return await Task.detached(priority: .userInitiated) {
             app.claudeService.readLog(path: job.logPath)
         }.value
+    }
+
+    // MARK: - Quick Session Actions
+
+    func getSessionLogs(_ session: QuickSession) async -> String {
+        guard app != nil else { return "Server not running" }
+        let logPath = session.logPath
+        // Run file I/O on background thread to prevent UI freezes
+        return await Task.detached(priority: .userInitiated) {
+            FileUtilities.readFileTailWithNotice(
+                path: logPath,
+                maxBytes: 500_000,
+                defaultMessage: "No logs yet..."
+            )
+        }.value
+    }
+
+    func deleteSession(_ session: QuickSession) async {
+        guard let app = app else { return }
+
+        do {
+            try await app.quickSessionService.deleteSession(id: session.id)
+            await refreshData()
+        } catch {
+            errorMessage = "Failed to delete session: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Utilities

@@ -48,6 +48,10 @@ public func configure(_ app: Application) async throws {
     await pricingService.initialize()
     app.pricingService = pricingService
 
+    // Initialize quick session service
+    let quickSessionService = QuickSessionService(app: app)
+    app.quickSessionService = quickSessionService
+
     // Load repo map
     let repoMapPath = app.directory.workingDirectory + "repo_map.json"
     do {
@@ -172,6 +176,10 @@ struct PricingServiceKey: StorageKey {
     typealias Value = PricingService
 }
 
+struct QuickSessionServiceKey: StorageKey {
+    typealias Value = QuickSessionService
+}
+
 public extension Application {
     var persistenceService: any PersistenceService {
         get { storage[PersistenceServiceKey.self]! }
@@ -216,5 +224,10 @@ public extension Application {
     var pricingService: PricingService {
         get { storage[PricingServiceKey.self]! }
         set { storage[PricingServiceKey.self] = newValue }
+    }
+
+    var quickSessionService: QuickSessionService {
+        get { storage[QuickSessionServiceKey.self]! }
+        set { storage[QuickSessionServiceKey.self] = newValue }
     }
 }

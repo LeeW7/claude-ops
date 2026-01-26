@@ -223,6 +223,83 @@ public actor SQLitePersistenceService: PersistenceService {
         return filtered
     }
 
+    // MARK: - Quick Sessions
+
+    public func getAllQuickSessions() async throws -> [QuickSession] {
+        try await dbPool.read { db in
+            try QuickSessionRecord
+                .order(QuickSessionRecord.Columns.lastActivity.desc)
+                .fetchAll(db)
+                .map { $0.toQuickSession() }
+        }
+    }
+
+    public func getQuickSession(id: String) async throws -> QuickSession? {
+        try await dbPool.read { db in
+            try QuickSessionRecord.fetchOne(db, key: id)?.toQuickSession()
+        }
+    }
+
+    public func getQuickSessionsForRepo(repo: String) async throws -> [QuickSession] {
+        try await dbPool.read { db in
+            try QuickSessionRecord
+                .filter(QuickSessionRecord.Columns.repo == repo)
+                .order(QuickSessionRecord.Columns.lastActivity.desc)
+                .fetchAll(db)
+                .map { $0.toQuickSession() }
+        }
+    }
+
+    public func saveQuickSession(_ session: QuickSession) async throws {
+        let record = QuickSessionRecord(from: session)
+        try await dbPool.write { db in
+            try record.save(db)
+        }
+    }
+
+    public func deleteQuickSession(id: String) async throws {
+        _ = try await dbPool.write { db in
+            // Messages will be cascade deleted due to foreign key
+            try QuickSessionRecord.deleteOne(db, key: id)
+        }
+    }
+
+    public func getExpiredQuickSessions(olderThan: Date) async throws -> [QuickSession] {
+        try await dbPool.read { db in
+            try QuickSessionRecord
+                .filter(QuickSessionRecord.Columns.createdAt < olderThan)
+                .fetchAll(db)
+                .map { $0.toQuickSession() }
+        }
+    }
+
+    // MARK: - Quick Messages
+
+    public func getQuickMessages(sessionId: String) async throws -> [QuickMessage] {
+        try await dbPool.read { db in
+            try QuickMessageRecord
+                .filter(QuickMessageRecord.Columns.sessionId == sessionId)
+                .order(QuickMessageRecord.Columns.timestamp.asc)
+                .fetchAll(db)
+                .map { $0.toQuickMessage() }
+        }
+    }
+
+    public func saveQuickMessage(_ message: QuickMessage) async throws {
+        let record = QuickMessageRecord(from: message)
+        try await dbPool.write { db in
+            try record.save(db)
+        }
+    }
+
+    public func deleteQuickMessages(sessionId: String) async throws {
+        _ = try await dbPool.write { db in
+            try QuickMessageRecord
+                .filter(QuickMessageRecord.Columns.sessionId == sessionId)
+                .deleteAll(db)
+        }
+    }
+
     // MARK: - Migration from jobs.json
 
     private func migrateFromJobsJson() async throws {

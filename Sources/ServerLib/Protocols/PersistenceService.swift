@@ -48,4 +48,35 @@ public protocol PersistenceService: Actor {
 
     /// Delete a worktree by issue key
     func deleteWorktree(issueKey: String) async throws
+
+    // MARK: - Quick Sessions
+
+    /// Get all quick sessions
+    func getAllQuickSessions() async throws -> [QuickSession]
+
+    /// Get a quick session by ID
+    func getQuickSession(id: String) async throws -> QuickSession?
+
+    /// Get quick sessions for a repo
+    func getQuickSessionsForRepo(repo: String) async throws -> [QuickSession]
+
+    /// Save a quick session
+    func saveQuickSession(_ session: QuickSession) async throws
+
+    /// Delete a quick session
+    func deleteQuickSession(id: String) async throws
+
+    /// Get expired sessions (older than specified date)
+    func getExpiredQuickSessions(olderThan: Date) async throws -> [QuickSession]
+
+    // MARK: - Quick Messages
+
+    /// Get all messages for a session
+    func getQuickMessages(sessionId: String) async throws -> [QuickMessage]
+
+    /// Save a quick message
+    func saveQuickMessage(_ message: QuickMessage) async throws
+
+    /// Delete all messages for a session
+    func deleteQuickMessages(sessionId: String) async throws
 }

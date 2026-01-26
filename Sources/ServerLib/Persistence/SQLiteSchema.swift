@@ -158,6 +158,116 @@ struct WorktreeRecord: Codable, FetchableRecord, PersistableRecord {
     }
 }
 
+// MARK: - Quick Session Record
+
+/// SQLite record for QuickSession model
+struct QuickSessionRecord: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "quick_sessions"
+
+    var id: String
+    var repo: String
+    var status: String
+    var worktreePath: String?
+    var claudeSessionId: String?
+    var createdAt: Date
+    var lastActivity: Date
+    var messageCount: Int
+    var totalCostUsd: Double
+
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let repo = Column(CodingKeys.repo)
+        static let status = Column(CodingKeys.status)
+        static let worktreePath = Column(CodingKeys.worktreePath)
+        static let claudeSessionId = Column(CodingKeys.claudeSessionId)
+        static let createdAt = Column(CodingKeys.createdAt)
+        static let lastActivity = Column(CodingKeys.lastActivity)
+        static let messageCount = Column(CodingKeys.messageCount)
+        static let totalCostUsd = Column(CodingKeys.totalCostUsd)
+    }
+
+    /// Convert from QuickSession model
+    init(from session: QuickSession) {
+        self.id = session.id
+        self.repo = session.repo
+        self.status = session.status.rawValue
+        self.worktreePath = session.worktreePath
+        self.claudeSessionId = session.claudeSessionId
+        self.createdAt = session.createdAt
+        self.lastActivity = session.lastActivity
+        self.messageCount = session.messageCount
+        self.totalCostUsd = session.totalCostUsd
+    }
+
+    /// Convert to QuickSession model
+    func toQuickSession() -> QuickSession {
+        QuickSession(
+            id: id,
+            repo: repo,
+            status: QuickSessionStatus(rawValue: status) ?? .idle,
+            worktreePath: worktreePath,
+            claudeSessionId: claudeSessionId,
+            createdAt: createdAt,
+            lastActivity: lastActivity,
+            messageCount: messageCount,
+            totalCostUsd: totalCostUsd
+        )
+    }
+}
+
+// MARK: - Quick Message Record
+
+/// SQLite record for QuickMessage model
+struct QuickMessageRecord: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "quick_messages"
+
+    var id: String  // UUID as string
+    var sessionId: String
+    var role: String
+    var content: String
+    var timestamp: Date
+    var costUsd: Double?
+    var toolName: String?
+    var toolInput: String?
+
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let sessionId = Column(CodingKeys.sessionId)
+        static let role = Column(CodingKeys.role)
+        static let content = Column(CodingKeys.content)
+        static let timestamp = Column(CodingKeys.timestamp)
+        static let costUsd = Column(CodingKeys.costUsd)
+        static let toolName = Column(CodingKeys.toolName)
+        static let toolInput = Column(CodingKeys.toolInput)
+    }
+
+    /// Convert from QuickMessage model
+    init(from message: QuickMessage) {
+        self.id = message.id.uuidString
+        self.sessionId = message.sessionId
+        self.role = message.role.rawValue
+        self.content = message.content
+        self.timestamp = message.timestamp
+        self.costUsd = message.costUsd
+        self.toolName = message.toolName
+        self.toolInput = message.toolInput
+    }
+
+    /// Convert to QuickMessage model
+    func toQuickMessage() -> QuickMessage {
+        QuickMessage(
+            id: UUID(uuidString: id) ?? UUID(),
+            sessionId: sessionId,
+            role: QuickMessageRole(rawValue: role) ?? .user,
+            content: content,
+            timestamp: timestamp,
+            costUsd: costUsd,
+            toolName: toolName,
+            toolInput: toolInput
+        )
+    }
+}
+
 // MARK: - Migrations
 
 /// Database migrations for SQLite schema
@@ -210,6 +320,44 @@ struct SQLiteMigrations {
                 t.column("branch", .text).notNull()
                 t.column("createdAt", .datetime).notNull()
             }
+        }
+
+        // Migration v3: Create quick_sessions table
+        migrator.registerMigration("v3_create_quick_sessions") { db in
+            try db.create(table: "quick_sessions") { t in
+                t.column("id", .text).primaryKey()
+                t.column("repo", .text).notNull()
+                t.column("status", .text).notNull()
+                t.column("worktreePath", .text)
+                t.column("claudeSessionId", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("lastActivity", .datetime).notNull()
+                t.column("messageCount", .integer).notNull().defaults(to: 0)
+                t.column("totalCostUsd", .double).notNull().defaults(to: 0.0)
+            }
+
+            // Indexes
+            try db.create(index: "quick_sessions_repo", on: "quick_sessions", columns: ["repo"])
+            try db.create(index: "quick_sessions_lastActivity", on: "quick_sessions", columns: ["lastActivity"])
+        }
+
+        // Migration v4: Create quick_messages table
+        migrator.registerMigration("v4_create_quick_messages") { db in
+            try db.create(table: "quick_messages") { t in
+                t.column("id", .text).primaryKey()
+                t.column("sessionId", .text).notNull()
+                    .references("quick_sessions", onDelete: .cascade)
+                t.column("role", .text).notNull()
+                t.column("content", .text).notNull()
+                t.column("timestamp", .datetime).notNull()
+                t.column("costUsd", .double)
+                t.column("toolName", .text)
+                t.column("toolInput", .text)
+            }
+
+            // Indexes
+            try db.create(index: "quick_messages_sessionId", on: "quick_messages", columns: ["sessionId"])
+            try db.create(index: "quick_messages_timestamp", on: "quick_messages", columns: ["timestamp"])
         }
 
         return migrator

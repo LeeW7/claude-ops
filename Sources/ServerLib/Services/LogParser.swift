@@ -40,7 +40,7 @@ public struct LogParser {
         }
 
         // Read last 64KB to find the result line
-        let content = readFileTail(path: path, maxBytes: 64 * 1024)
+        let content = FileUtilities.readFileTail(path: path, maxBytes: 64 * 1024) ?? ""
 
         // Look for the result line (should be near the end)
         let lines = content.components(separatedBy: .newlines).reversed()
@@ -88,7 +88,7 @@ public struct LogParser {
             return []
         }
 
-        let content = readFileTail(path: path, maxBytes: 128 * 1024)
+        let content = FileUtilities.readFileTail(path: path, maxBytes: 128 * 1024) ?? ""
         let lines = content.components(separatedBy: .newlines)
 
         var activities: [String] = []
@@ -110,24 +110,6 @@ public struct LogParser {
     }
 
     // MARK: - Private Helpers
-
-    private static func readFileTail(path: String, maxBytes: UInt64) -> String {
-        guard let handle = FileHandle(forReadingAtPath: path) else {
-            return ""
-        }
-        defer { try? handle.close() }
-
-        let fileSize = handle.seekToEndOfFile()
-        let startPos = fileSize > maxBytes ? fileSize - maxBytes : 0
-        handle.seek(toFileOffset: startPos)
-
-        guard let data = try? handle.readToEnd(),
-              let content = String(data: data, encoding: .utf8) else {
-            return ""
-        }
-
-        return content
-    }
 
     private static func extractPRUrl(from text: String?) -> String? {
         guard let text = text else { return nil }
