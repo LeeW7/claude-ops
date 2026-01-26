@@ -1,6 +1,12 @@
 import SwiftUI
 import ServerLib
 
+extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
+}
+
 struct LogsView: View {
     @EnvironmentObject var serverManager: ServerManager
     @EnvironmentObject var appState: AppState
@@ -211,14 +217,34 @@ struct JobDetailView: View {
     @Binding var autoRefresh: Bool
     @EnvironmentObject var serverManager: ServerManager
     @State private var showingCopiedAlert = false
+    @State private var showRawLogs = false
+    @State private var summary: JobLogSummary?
 
     var body: some View {
         VStack(spacing: 0) {
             headerSection
             Divider()
-            logSection
+            if showRawLogs {
+                rawLogSection
+            } else {
+                summarySection
+            }
             Divider()
             footerSection
+        }
+        .task {
+            summary = await serverManager.getJobSummary(job)
+        }
+        .onChange(of: logContent) { _, _ in
+            // Refresh summary when logs update
+            let mgr = serverManager
+            let currentJob = job
+            Task {
+                let newSummary = await mgr.getJobSummary(currentJob)
+                await MainActor.run {
+                    summary = newSummary
+                }
+            }
         }
     }
 
@@ -238,10 +264,17 @@ struct JobDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                HStack {
+                HStack(spacing: 12) {
                     Text(job.repo)
                     Text("•")
                     Text(job.formattedStartTime)
+                    if let summary = summary, summary.isComplete {
+                        Text("•")
+                        Text(summary.durationFormatted)
+                        Text("•")
+                        Text(summary.costFormatted)
+                            .foregroundStyle(.green)
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -286,11 +319,54 @@ struct JobDetailView: View {
         }
     }
 
-    private var logSection: some View {
+    private var summarySection: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // PR Link if available
+                if let prUrl = summary?.prUrl {
+                    Link(destination: URL(string: prUrl)!) {
+                        HStack {
+                            Image(systemName: "arrow.triangle.pull")
+                            Text("View Pull Request")
+                            Spacer()
+                            Image(systemName: "arrow.up.forward.square")
+                        }
+                        .padding()
+                        .background(Color.accentColor.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                }
+
+                // Result summary
+                if let result = summary?.result ?? logContent.nilIfEmpty {
+                    Text(result)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if job.status == .running {
+                    HStack {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Job in progress...")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 50)
+                } else {
+                    Text("No output available")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 50)
+                }
+            }
+            .padding()
+        }
+    }
+
+    private var rawLogSection: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 Text(logContent)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
@@ -308,6 +384,12 @@ struct JobDetailView: View {
 
     private var footerSection: some View {
         HStack {
+            Toggle(isOn: $showRawLogs) {
+                Label("Raw JSON", systemImage: "doc.text")
+            }
+            .toggleStyle(.button)
+            .buttonStyle(.plain)
+
             Button {
                 copyLogs()
             } label: {

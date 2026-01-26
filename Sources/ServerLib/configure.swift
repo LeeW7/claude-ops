@@ -54,8 +54,9 @@ public func configure(_ app: Application) async throws {
         app.repoMap = try RepoMap.load(from: repoMapPath)
         app.logger.info("[Setup] Loaded repo_map.json with \(app.repoMap?.allRepositories().count ?? 0) repositories")
     } catch {
-        app.logger.warning("[Setup] Failed to load repo_map.json: \(error.localizedDescription)")
-        app.logger.warning("[Setup] Server will start without any configured repositories. Create repo_map.json and restart.")
+        app.logger.error("[Setup] CRITICAL: Failed to load repo_map.json: \(error.localizedDescription)")
+        app.logger.error("[Setup] The server cannot function without repo_map.json - webhook processing and job execution will not work.")
+        app.logger.error("[Setup] Create repo_map.json in the working directory and restart the server.")
         app.repoMap = nil
     }
 

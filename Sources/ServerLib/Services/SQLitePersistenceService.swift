@@ -208,7 +208,14 @@ public actor SQLitePersistenceService: PersistenceService {
 
         let filtered = jobs
             .filter { $0.startTime > cutoffTime }
-            .sorted { $0.startTime > $1.startTime }
+            .sorted {
+                // Primary sort by startTime (newest first)
+                // Secondary sort by job ID for stable ordering when times are equal
+                if $0.startTime != $1.startTime {
+                    return $0.startTime > $1.startTime
+                }
+                return $0.id > $1.id
+            }
 
         if filtered.count > maxJobsToReturn {
             return Array(filtered.prefix(maxJobsToReturn))

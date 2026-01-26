@@ -90,6 +90,33 @@ if [ -n "$STAGED_CONTENT" ]; then
     fi
 fi
 
+# Retrospective commit validation
+# If commit message indicates a retrospective, ensure ONLY .claude/retrospectives/ files are modified
+# This is checked via a prepare-commit-msg or by examining the branch name
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+
+# Check if this appears to be a retrospective commit (branch contains retrospective or commit is docs-only)
+if echo "$CURRENT_BRANCH" | grep -qi "retrospective"; then
+    echo "Validating retrospective commit (docs-only)..."
+
+    # Check if any staged files are outside .claude/retrospectives/
+    NON_RETRO_FILES=$(echo "$STAGED_FILES" | grep -v "^\.claude/retrospectives/" || true)
+
+    if [ -n "$NON_RETRO_FILES" ]; then
+        echo -e "${RED}BLOCKED: Retrospective commits can only modify .claude/retrospectives/${NC}"
+        echo -e "${RED}The following files are not allowed:${NC}"
+        echo "$NON_RETRO_FILES" | while read -r file; do
+            echo -e "  ${RED}- $file${NC}"
+        done
+        echo ""
+        echo "Retrospective branches should only contain documentation changes."
+        echo "If you need to modify code, use a different branch."
+        BLOCKED=1
+    else
+        echo -e "${GREEN}Retrospective validation passed (docs-only)${NC}"
+    fi
+fi
+
 # Final result
 echo ""
 if [ $BLOCKED -eq 1 ]; then

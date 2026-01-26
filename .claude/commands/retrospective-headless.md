@@ -381,18 +381,65 @@ EOF
 )"
 ```
 
-### 3.4: Commit Changes
+### 3.4: Commit and Create PR
 
 ```bash
+# Rename branch to include "retrospective" (enables pre-commit hook validation)
+# This ensures the hook blocks any non-docs changes
+CURRENT_BRANCH=$(git branch --show-current)
+RETRO_BRANCH="claude-ops/issue-[ISSUE_NUMBER]-retrospective"
+if [ "$CURRENT_BRANCH" != "$RETRO_BRANCH" ]; then
+    git branch -m "$RETRO_BRANCH"
+fi
+
+# Stage only retrospective files (pre-commit hook will block if other files staged)
 git add .claude/retrospectives/
+
+# Commit with retrospective message
 git commit -m "$(cat <<'EOF'
 docs: Add retrospective for Issue #[ISSUE_NUMBER]
 
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 EOF
 )"
-git push
+
+# Push the branch
+git push -u origin HEAD
 ```
+
+### 3.5: Create PR with Auto-Merge
+
+```bash
+# Create PR targeting the default branch
+PR_URL=$(gh pr create \
+  --title "docs: Retrospective for Issue #[ISSUE_NUMBER]" \
+  --body "$(cat <<'EOF'
+## Retrospective Documentation
+
+This PR adds the retrospective analysis for Issue #[ISSUE_NUMBER].
+
+### Changes
+- `.claude/retrospectives/2026-q1.md` - New retrospective entry
+- `.claude/retrospectives/cumulative-stats.json` - Updated totals
+
+### Safety
+- ✅ Only modifies `.claude/retrospectives/` (enforced by pre-commit hook)
+- ✅ No code changes
+- ✅ Auto-generated documentation
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)")
+
+echo "Created PR: $PR_URL"
+
+# Enable auto-merge (will merge when checks pass)
+gh pr merge --auto --squash
+
+echo "Auto-merge enabled - PR will merge when checks pass"
+```
+
+**Note:** The pre-commit hook validates that retrospective branches can ONLY modify `.claude/retrospectives/` files. Any attempt to modify code will be blocked.
 
 ---
 
@@ -410,6 +457,9 @@ git push
 | Retrospective already exists | Add `blocked` label, comment, EXIT with failure |
 | State file missing | Continue with warning (metrics less detailed) |
 | Git push fails | Retry once, then add `blocked` label, comment and EXIT |
+| PR creation fails | Add `blocked` label, comment with error, EXIT with failure |
+| Auto-merge enable fails | Log warning, continue (PR can be merged manually) |
+| Pre-commit hook blocks | Fix staged files, only stage .claude/retrospectives/ |
 | JSON parse error | Use safe defaults, continue |
 
 ### Error Comment Template
@@ -457,7 +507,10 @@ Then **EXIT with failure** - this is a blocked state, not a success.
 - [ ] Appended entry to `.claude/retrospectives/2026-q1.md`
 - [ ] Updated `.claude/retrospectives/cumulative-stats.json`
 - [ ] Posted summary comment on issue
-- [ ] Committed and pushed changes
+- [ ] Committed changes (only .claude/retrospectives/ files)
+- [ ] Pushed branch to origin
+- [ ] Created PR with descriptive title
+- [ ] Enabled auto-merge on PR
 - [ ] **EXIT**
 
 ---
