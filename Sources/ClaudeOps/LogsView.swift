@@ -123,7 +123,7 @@ struct LogsView: View {
         .listStyle(.sidebar)
     }
 
-    var filteredSessions: [QuickSession] {
+    private var filteredSessions: [QuickSession] {
         var sessions = serverManager.quickSessions
 
         if !searchText.isEmpty {

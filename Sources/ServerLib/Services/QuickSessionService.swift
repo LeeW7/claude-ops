@@ -8,6 +8,9 @@ public actor QuickSessionService {
     /// WebSocket connections for session streaming
     private var sessionConnections: [String: [(WebSocket, EventLoop)]] = [:]
 
+    /// Active Claude processes by session ID
+    private var activeProcesses: [String: Process] = [:]
+
     public init(app: Application) {
         self.app = app
     }
@@ -83,6 +86,12 @@ public actor QuickSessionService {
 
         guard let session = try await app.persistenceService.getQuickSession(id: id) else {
             throw QuickSessionError.sessionNotFound(id)
+        }
+
+        // Terminate any running process
+        if let process = activeProcesses.removeValue(forKey: id), process.isRunning {
+            process.terminate()
+            app.logger.info("[QuickSession] Terminated running process for session \(id)")
         }
 
         // Clean up worktree if exists
@@ -247,6 +256,9 @@ public actor QuickSessionService {
         do {
             try process.run()
 
+            // Track active process for potential termination
+            activeProcesses[session.id] = process
+
             // Process stdout in real-time
             let handle = stdoutPipe.fileHandleForReading
             var buffer = Data()
@@ -329,6 +341,9 @@ public actor QuickSessionService {
 
             process.waitUntilExit()
 
+            // Remove from active processes
+            activeProcesses.removeValue(forKey: session.id)
+
             // Save assistant message
             let assistantMessage = QuickMessage(
                 sessionId: session.id,
@@ -369,6 +384,9 @@ public actor QuickSessionService {
             app.logger.info("[QuickSession] Completed message for \(session.id), cost: $\(String(format: "%.4f", totalCost))")
 
         } catch {
+            // Remove from active processes
+            activeProcesses.removeValue(forKey: session.id)
+
             appendToLog("")
             appendToLog("=== ERROR ===")
             appendToLog(error.localizedDescription)

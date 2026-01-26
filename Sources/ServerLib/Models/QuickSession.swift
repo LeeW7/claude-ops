@@ -48,7 +48,7 @@ public struct QuickSession: Content, Identifiable, Sendable, Hashable {
 
     /// Create a new quick session
     public init(repo: String) {
-        let timestamp = Int(Date().timeIntervalSince1970)
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)  // Milliseconds to avoid collision
         self.id = "quick-\(timestamp)"
         self.repo = repo
         self.status = .idle
