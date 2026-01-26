@@ -98,6 +98,22 @@ public struct Job: Content, Identifiable, Hashable, Equatable {
     /// Timestamp when last updated
     public var updatedAt: Date
 
+    // MARK: - Static Properties
+
+    /// Directory for storing job logs
+    public static var logsDirectory: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude-ops/logs")
+            .path
+    }
+
+    /// Ensure the logs directory exists
+    public static func ensureLogsDirectory() {
+        let logsDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude-ops/logs")
+        try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
+    }
+
     /// Create a new job
     public init(
         repo: String,
@@ -116,7 +132,7 @@ public struct Job: Content, Identifiable, Hashable, Equatable {
         self.status = .pending
         self.startTime = Int(Date().timeIntervalSince1970)
         self.completedTime = nil
-        self.logPath = "/tmp/claude_job_\(self.id).log"
+        self.logPath = Job.logsDirectory + "/job_\(self.id).log"
         self.localPath = localPath
         self.fullCommand = "cd \(localPath) && claude '/\(command) \(issueNum)' --print --dangerously-skip-permissions"
         self.error = nil
