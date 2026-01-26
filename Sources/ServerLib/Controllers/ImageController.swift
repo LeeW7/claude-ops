@@ -42,11 +42,15 @@ struct ImageController: RouteCollection {
             description: "Feedback screenshot: \(uniqueName)"
         )
 
-        // Try to get raw URL
+        // Try to get raw URL (optional - gist URL is still usable without it)
         var rawUrl: String? = nil
         if gistUrl.contains("gist.github.com") {
             let gistId = gistUrl.split(separator: "/").last.map(String.init) ?? ""
-            rawUrl = try? await req.application.githubService.getGistRawURL(gistID: gistId)
+            do {
+                rawUrl = try await req.application.githubService.getGistRawURL(gistID: gistId)
+            } catch {
+                req.logger.debug("Could not get raw URL for gist \(gistId): \(error.localizedDescription)")
+            }
         }
 
         var response: [String: Any] = [

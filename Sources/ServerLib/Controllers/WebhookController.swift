@@ -45,7 +45,7 @@ struct WebhookController: RouteCollection {
         req.logger.info("[Webhook] Triggering job: \(repoName)#\(issue.number) command=\(commandName)")
 
         // Trigger the job using shared service
-        let triggered = await req.application.jobTriggerService.triggerJob(
+        let result = await req.application.jobTriggerService.triggerJob(
             repo: repoName,
             issueNum: issue.number,
             issueTitle: issue.title,
@@ -53,12 +53,19 @@ struct WebhookController: RouteCollection {
             cmdLabel: cmdLabel
         )
 
-        if triggered {
-            req.logger.info("[Webhook] Job triggered successfully for \(repoName)#\(issue.number)")
-            return Response(status: .ok, body: .init(string: "Triggered"))
-        } else {
-            req.logger.warning("[Webhook] Job trigger returned false for \(repoName)#\(issue.number) - check JobTriggerService logs")
-            return Response(status: .ok, body: .init(string: "Skipped"))
+        switch result {
+        case .triggered(let jobId):
+            req.logger.info("[Webhook] Job triggered successfully: \(jobId)")
+            return Response(status: .ok, body: .init(string: "Triggered: \(jobId)"))
+
+        case .skipped(let reason):
+            req.logger.info("[Webhook] Job skipped for \(repoName)#\(issue.number): \(reason)")
+            return Response(status: .ok, body: .init(string: "Skipped: \(reason)"))
+
+        case .failed(let error):
+            req.logger.error("[Webhook] Job trigger failed for \(repoName)#\(issue.number): \(error)")
+            // Return 200 to GitHub (so it doesn't retry) but include error in body
+            return Response(status: .ok, body: .init(string: "Failed: \(error)"))
         }
     }
 }

@@ -50,7 +50,14 @@ public func configure(_ app: Application) async throws {
 
     // Load repo map
     let repoMapPath = app.directory.workingDirectory + "repo_map.json"
-    app.repoMap = try? RepoMap.load(from: repoMapPath)
+    do {
+        app.repoMap = try RepoMap.load(from: repoMapPath)
+        app.logger.info("[Setup] Loaded repo_map.json with \(app.repoMap?.allRepositories().count ?? 0) repositories")
+    } catch {
+        app.logger.warning("[Setup] Failed to load repo_map.json: \(error.localizedDescription)")
+        app.logger.warning("[Setup] Server will start without any configured repositories. Create repo_map.json and restart.")
+        app.repoMap = nil
+    }
 
     // Validate repos have required labels and local commands (run in background)
     if let repoMap = app.repoMap {

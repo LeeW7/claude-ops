@@ -75,54 +75,35 @@ struct JobController: RouteCollection {
 
         req.logger.info("POST /jobs/trigger: repo=\(body.repo) issueNum=\(body.issueNum) command=\(body.command)")
 
-        guard let repoMap = req.application.repoMap else {
-            throw Abort(.internalServerError, reason: "Repo map not configured")
-        }
-
-        guard repoMap.getPath(for: body.repo) != nil else {
-            throw Abort(.badRequest, reason: "Repository \(body.repo) not found in repo_map.json")
-        }
-
-        // Build job ID to check if already exists
-        let repoSlug = body.repo.split(separator: "/").last.map(String.init) ?? body.repo
-        let jobId = "\(repoSlug)-\(body.issueNum)-\(body.command)"
-
-        // Check if job already exists and is active BEFORE returning success
-        do {
-            if try await req.application.persistenceService.jobExistsAndActive(id: jobId) {
-                req.logger.info("Job \(jobId) already exists and is active, rejecting trigger")
-                throw Abort(.conflict, reason: "Job \(jobId) is already running or pending")
-            }
-        } catch let error as Abort {
-            throw error
-        } catch {
-            req.logger.error("Error checking job status: \(error)")
-            throw Abort(.internalServerError, reason: "Failed to check job status: \(error.localizedDescription)")
-        }
-
-        // Now trigger job in background - we know it doesn't already exist
-        let app = req.application
-        Task {
-            await app.jobTriggerService.triggerJob(
-                repo: body.repo,
-                issueNum: body.issueNum,
-                issueTitle: body.issueTitle,
-                command: body.command,
-                cmdLabel: body.cmdLabel
-            )
-        }
-
-        let response: [String: Any] = [
-            "status": "triggered",
-            "message": "Starting \(body.command) job for \(body.repo)#\(body.issueNum)"
-        ]
-
-        let data = try JSONSerialization.data(withJSONObject: response)
-        return Response(
-            status: .ok,
-            headers: ["Content-Type": "application/json"],
-            body: .init(data: data)
+        // Trigger the job - JobTriggerService handles all validation
+        let result = await req.application.jobTriggerService.triggerJob(
+            repo: body.repo,
+            issueNum: body.issueNum,
+            issueTitle: body.issueTitle,
+            command: body.command,
+            cmdLabel: body.cmdLabel
         )
+
+        switch result {
+        case .triggered(let jobId):
+            let response: [String: Any] = [
+                "status": "triggered",
+                "jobId": jobId,
+                "message": "Starting \(body.command) job for \(body.repo)#\(body.issueNum)"
+            ]
+            let data = try JSONSerialization.data(withJSONObject: response)
+            return Response(
+                status: .ok,
+                headers: ["Content-Type": "application/json"],
+                body: .init(data: data)
+            )
+
+        case .skipped(let reason):
+            throw Abort(.conflict, reason: reason)
+
+        case .failed(let error):
+            throw Abort(.internalServerError, reason: error)
+        }
     }
 
     /// Get logs for a specific job
@@ -226,11 +207,15 @@ struct JobController: RouteCollection {
 
         // Close the GitHub issue with a comment
         let comment = "Job cancelled via Agent Command Center."
-        try? await req.application.githubService.closeIssue(
-            repo: job.repo,
-            number: job.issueNum,
-            comment: comment
-        )
+        do {
+            try await req.application.githubService.closeIssue(
+                repo: job.repo,
+                number: job.issueNum,
+                comment: comment
+            )
+        } catch {
+            req.logger.warning("Failed to close issue \(job.repo)#\(job.issueNum): \(error.localizedDescription)")
+        }
 
         // Send notification
         let commandName = job.command.replacingOccurrences(of: "-headless", with: "").capitalized

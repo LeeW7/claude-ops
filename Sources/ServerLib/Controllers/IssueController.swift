@@ -48,13 +48,16 @@ struct IssueController: RouteCollection {
            let issueNum = Int(lastComponent) {
             let app = req.application
             Task {
-                await app.jobTriggerService.triggerJob(
+                let result = await app.jobTriggerService.triggerJob(
                     repo: body.repo,
                     issueNum: issueNum,
                     issueTitle: body.title,
                     command: "plan-headless",
                     cmdLabel: "cmd:plan-headless"
                 )
+                if case .failed(let error) = result {
+                    app.logger.error("Failed to trigger plan-headless job for new issue: \(error)")
+                }
             }
         }
 
@@ -155,17 +158,26 @@ struct IssueController: RouteCollection {
         let app = req.application
         Task {
             // Get issue title for the job
-            let issueData = try? await app.githubService.getIssue(repo: repo, number: issueNum)
-            let issueTitle = issueData?["title"] as? String ?? "Issue #\(issueNum)"
+            let issueTitle: String
+            do {
+                let issueData = try await app.githubService.getIssue(repo: repo, number: issueNum)
+                issueTitle = issueData?["title"] as? String ?? "Issue #\(issueNum)"
+            } catch {
+                app.logger.warning("Could not fetch issue title for \(repo)#\(issueNum): \(error.localizedDescription)")
+                issueTitle = "Issue #\(issueNum)"
+            }
 
             // Trigger the job (creates worktree, saves to Firebase, removes label)
-            await app.jobTriggerService.triggerJob(
+            let result = await app.jobTriggerService.triggerJob(
                 repo: repo,
                 issueNum: issueNum,
                 issueTitle: issueTitle,
                 command: command,
                 cmdLabel: nextLabel
             )
+            if case .failed(let error) = result {
+                app.logger.error("Failed to trigger \(command) job: \(error)")
+            }
         }
 
         let response: [String: Any] = [
@@ -221,11 +233,17 @@ struct IssueController: RouteCollection {
         try await req.application.githubService.postComment(repo: repo, number: issueNum, body: commentBody)
 
         // Get issue title for the job
-        let issueData = try await req.application.githubService.getIssue(repo: repo, number: issueNum)
-        let issueTitle = issueData?["title"] as? String ?? "Issue #\(issueNum)"
+        let issueTitle: String
+        do {
+            let issueData = try await req.application.githubService.getIssue(repo: repo, number: issueNum)
+            issueTitle = issueData?["title"] as? String ?? "Issue #\(issueNum)"
+        } catch {
+            req.logger.warning("Could not fetch issue title: \(error.localizedDescription)")
+            issueTitle = "Issue #\(issueNum)"
+        }
 
         // Trigger the appropriate job
-        await req.application.jobTriggerService.triggerJob(
+        let result = await req.application.jobTriggerService.triggerJob(
             repo: repo,
             issueNum: issueNum,
             issueTitle: issueTitle,
@@ -233,14 +251,25 @@ struct IssueController: RouteCollection {
             cmdLabel: cmdLabel
         )
 
-        let message = isPlanFeedback
-            ? "Feedback posted and plan update started for issue #\(issueNum)"
-            : "Feedback posted and revision job started for issue #\(issueNum)"
+        switch result {
+        case .triggered:
+            let message = isPlanFeedback
+                ? "Feedback posted and plan update started for issue #\(issueNum)"
+                : "Feedback posted and revision job started for issue #\(issueNum)"
+            return FeedbackResponse(
+                status: "feedback_submitted",
+                message: message
+            )
 
-        return FeedbackResponse(
-            status: "feedback_submitted",
-            message: message
-        )
+        case .skipped(let reason):
+            return FeedbackResponse(
+                status: "feedback_posted",
+                message: "Feedback posted but job skipped: \(reason)"
+            )
+
+        case .failed(let error):
+            throw Abort(.internalServerError, reason: "Feedback posted but job failed to start: \(error)")
+        }
     }
 
     /// Merge the PR for an issue
@@ -265,7 +294,12 @@ struct IssueController: RouteCollection {
         }
 
         // Mark PR as ready (in case it's a draft)
-        try? await req.application.githubService.markPRReady(repo: repo, prNumber: prNumber)
+        do {
+            try await req.application.githubService.markPRReady(repo: repo, prNumber: prNumber)
+        } catch {
+            // Not critical - PR might not be a draft, or might already be ready
+            req.logger.debug("Could not mark PR #\(prNumber) as ready: \(error.localizedDescription)")
+        }
 
         // Merge the PR
         try await req.application.githubService.mergePR(repo: repo, prNumber: prNumber, method: mergeMethod)
