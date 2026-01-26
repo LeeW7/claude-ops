@@ -181,11 +181,14 @@ public struct GitHubService {
         ], input: body)
     }
 
-    /// Close an issue with a comment
-    func closeIssue(repo: String, number: Int, comment: String? = nil) async throws {
+    /// Close an issue with optional comment and reason
+    func closeIssue(repo: String, number: Int, comment: String? = nil, reason: String? = nil) async throws {
         var args = ["issue", "close", String(number), "--repo", repo]
         if let comment = comment {
             args += ["--comment", comment]
+        }
+        if let reason = reason {
+            args += ["--reason", reason]
         }
         _ = try await runGH(args)
     }
