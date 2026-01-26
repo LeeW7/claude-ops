@@ -16,6 +16,7 @@ struct IssueController: RouteCollection {
         issues.post(":owner", ":repo", ":num", "proceed", use: proceedWithIssue)
         issues.post(":owner", ":repo", ":num", "feedback", use: postFeedback)
         issues.post(":owner", ":repo", ":num", "merge", use: mergePR)
+        issues.post(":owner", ":repo", ":num", "close", use: closeIssue)
         issues.get(":owner", ":repo", ":num", "pr", use: getPRDetails)
         issues.get(":owner", ":repo", ":num", "costs", use: getIssueCosts)
     }
@@ -328,6 +329,28 @@ struct IssueController: RouteCollection {
             status: "merged",
             pr_number: prNumber,
             message: "PR #\(prNumber) merged and issue #\(issueNum) closed"
+        )
+    }
+
+    /// Close an issue on GitHub
+    @Sendable
+    func closeIssue(req: Request) async throws -> CloseIssueResponse {
+        let (repo, issueNum) = try parseRepoAndIssue(req)
+        let body = try? req.content.decode(CloseIssueRequest.self)
+        let reason = body?.closeReason ?? "completed"
+
+        // Close the issue on GitHub
+        try await req.application.githubService.closeIssue(
+            repo: repo,
+            number: issueNum,
+            reason: reason
+        )
+
+        req.logger.info("[IssueController] Closed issue #\(issueNum) in \(repo) with reason: \(reason)")
+
+        return CloseIssueResponse(
+            status: "closed",
+            message: "Issue #\(issueNum) has been closed"
         )
     }
 
