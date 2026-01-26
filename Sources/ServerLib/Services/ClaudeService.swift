@@ -290,8 +290,12 @@ public actor ClaudeService {
                 // Sync the issue title from GitHub
                 if let updatedTitle = await fetchIssueTitle(repo: job.repo, issueNum: job.issueNum) {
                     if updatedTitle != job.issueTitle {
-                        try? await app.persistenceService.updateJobIssueTitle(id: job.id, newTitle: updatedTitle)
-                        app.logger.info("[\(job.id)] Updated issue title: \(updatedTitle)")
+                        do {
+                            try await app.persistenceService.updateJobIssueTitle(id: job.id, newTitle: updatedTitle)
+                            app.logger.info("[\(job.id)] Updated issue title: \(updatedTitle)")
+                        } catch {
+                            app.logger.debug("[\(job.id)] Could not sync issue title: \(error.localizedDescription)")
+                        }
                     }
                 }
 
@@ -335,7 +339,11 @@ public actor ClaudeService {
             runningProcesses.removeValue(forKey: job.id)
             stdinPipes.removeValue(forKey: job.id)
             app.logger.error("[\(job.id)] Error: \(error)")
-            try? await app.persistenceService.updateJobStatus(id: job.id, status: JobStatus.failed, error: error.localizedDescription)
+            do {
+                try await app.persistenceService.updateJobStatus(id: job.id, status: JobStatus.failed, error: error.localizedDescription)
+            } catch let persistError {
+                app.logger.error("[\(job.id)] Failed to update job status to failed: \(persistError.localizedDescription)")
+            }
             appendToLog(job.logPath, text: "\nError: \(error)\n")
 
             // Broadcast error (per-job)

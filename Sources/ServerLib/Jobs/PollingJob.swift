@@ -96,7 +96,7 @@ actor PollingJob {
                 app.logger.info("[Polling] Triggering \(commandName) for \(repo)#\(number)")
 
                 // Use shared job trigger service
-                let triggered = await app.jobTriggerService.triggerJob(
+                let result = await app.jobTriggerService.triggerJob(
                     repo: repo,
                     issueNum: number,
                     issueTitle: title,
@@ -104,10 +104,13 @@ actor PollingJob {
                     cmdLabel: cmdLabel
                 )
 
-                if triggered {
-                    app.logger.info("[Polling] Successfully triggered job for \(repo)#\(number)")
-                } else {
-                    app.logger.debug("[Polling] Job not triggered for \(repo)#\(number) (may already exist)")
+                switch result {
+                case .triggered(let jobId):
+                    app.logger.info("[Polling] Successfully triggered job: \(jobId)")
+                case .skipped(let reason):
+                    app.logger.debug("[Polling] Job skipped for \(repo)#\(number): \(reason)")
+                case .failed(let error):
+                    app.logger.error("[Polling] Job trigger failed for \(repo)#\(number): \(error)")
                 }
             }
         } catch {

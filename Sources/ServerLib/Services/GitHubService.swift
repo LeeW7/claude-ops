@@ -1,9 +1,33 @@
 import Vapor
 import Foundation
 
+/// Error thrown when a GitHub CLI command fails
+public struct GitHubCLIError: Error, LocalizedError {
+    public let command: String
+    public let exitCode: Int32
+    public let stderr: String
+    public let stdout: String
+
+    public var errorDescription: String? {
+        let detail = stderr.isEmpty ? stdout : stderr
+        return "GitHub CLI failed (exit \(exitCode)): \(detail.trimmingCharacters(in: .whitespacesAndNewlines))"
+    }
+
+    /// Check if this is a "not found" type error
+    public var isNotFound: Bool {
+        stderr.contains("not found") || stderr.contains("Could not resolve")
+    }
+
+    /// Check if this is an "already exists" error (not really an error for our purposes)
+    public var isAlreadyExists: Bool {
+        stderr.contains("already exists")
+    }
+}
+
 /// Service for interacting with GitHub via the gh CLI
 public struct GitHubService {
     public init() {}
+
     /// Find the gh CLI executable
     private func findGH() -> String {
         let paths = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
@@ -12,37 +36,54 @@ public struct GitHubService {
                 return path
             }
         }
-        return "gh" // Fallback
+        return "gh" // Fallback - will fail with clear error if not in PATH
     }
 
     /// Run a gh CLI command and return the output
+    /// - Throws: GitHubCLIError if the command exits with non-zero status
     private func runGH(_ args: [String]) async throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: findGH())
         process.arguments = args
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
 
         try process.run()
         process.waitUntilExit()
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+
+        guard process.terminationStatus == 0 else {
+            throw GitHubCLIError(
+                command: "gh \(args.joined(separator: " "))",
+                exitCode: process.terminationStatus,
+                stderr: stderr,
+                stdout: stdout
+            )
+        }
+
+        return stdout
     }
 
     /// Run a gh CLI command with input via stdin
+    /// - Throws: GitHubCLIError if the command exits with non-zero status
     private func runGHWithInput(_ args: [String], input: String) async throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: findGH())
         process.arguments = args
 
         let inputPipe = Pipe()
-        let outputPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
         process.standardInput = inputPipe
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
 
         try process.run()
 
@@ -52,8 +93,21 @@ public struct GitHubService {
 
         process.waitUntilExit()
 
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+
+        guard process.terminationStatus == 0 else {
+            throw GitHubCLIError(
+                command: "gh \(args.joined(separator: " "))",
+                exitCode: process.terminationStatus,
+                stderr: stderr,
+                stdout: stdout
+            )
+        }
+
+        return stdout
     }
 
     // MARK: - Issue Operations
@@ -265,27 +319,38 @@ public struct GitHubService {
 
     /// Required labels for Claude Ops functionality
     public static let requiredLabels: [(name: String, description: String, color: String)] = [
+        // Command labels - trigger Claude workflows
         ("cmd:plan-headless", "Trigger Claude to plan this issue", "0E8A16"),
         ("cmd:implement-headless", "Trigger Claude to implement this issue", "1D76DB"),
+        ("cmd:revise-headless", "Trigger Claude to revise based on feedback", "5319E7"),
+        ("cmd:retrospective-headless", "Trigger Claude to analyze completed work", "FBCA04"),
+        // Status labels
         ("ready-for-review", "Ready for code review", "0E8A16"),
+        ("blocked", "Issue is blocked and needs attention", "D93F0B"),
     ]
 
     /// Ensure required labels exist on a repository
+    /// Returns list of labels that were created (excludes already existing ones)
     func ensureRequiredLabels(repo: String) async -> [String] {
         var created: [String] = []
 
         for label in Self.requiredLabels {
-            // Try to create the label - will fail silently if it exists
-            let output = try? await runGH([
-                "label", "create", label.name,
-                "--repo", repo,
-                "--description", label.description,
-                "--color", label.color
-            ])
-
-            // Check if we created it (no error about already exists)
-            if let output = output, !output.contains("already exists") {
+            do {
+                _ = try await runGH([
+                    "label", "create", label.name,
+                    "--repo", repo,
+                    "--description", label.description,
+                    "--color", label.color
+                ])
+                // If we get here, label was created successfully
                 created.append(label.name)
+            } catch let error as GitHubCLIError where error.isAlreadyExists {
+                // Label already exists - this is fine, not an error
+                continue
+            } catch {
+                // Other errors (permission denied, repo not found, etc.) - log but continue
+                // We don't want one label failure to stop the others
+                continue
             }
         }
 
@@ -304,5 +369,37 @@ public struct GitHubService {
         }
 
         return results
+    }
+
+    /// Get all labels on a repository
+    func getRepoLabels(repo: String) async throws -> [String] {
+        let output = try await runGH([
+            "label", "list",
+            "--repo", repo,
+            "--json", "name"
+        ])
+
+        guard let data = output.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return []
+        }
+
+        return json.compactMap { $0["name"] as? String }
+    }
+
+    /// Check which required labels are missing from a repository
+    /// Returns empty array if all required labels exist
+    func getMissingLabels(repo: String) async throws -> [String] {
+        let existingLabels = try await getRepoLabels(repo: repo)
+        let requiredNames = Self.requiredLabels.map { $0.name }
+        return requiredNames.filter { !existingLabels.contains($0) }
+    }
+
+    /// Check which command labels (cmd:*) are missing from a repository
+    /// These are the labels that trigger workflows
+    func getMissingCommandLabels(repo: String) async throws -> [String] {
+        let existingLabels = try await getRepoLabels(repo: repo)
+        let commandLabels = Self.requiredLabels.filter { $0.name.hasPrefix("cmd:") }.map { $0.name }
+        return commandLabels.filter { !existingLabels.contains($0) }
     }
 }
