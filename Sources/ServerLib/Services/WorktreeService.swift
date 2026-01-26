@@ -187,6 +187,17 @@ public actor WorktreeService {
         try? fetchProcess.run()
         fetchProcess.waitUntilExit()
 
+        // Prune stale worktree references (cleans up entries where directory was deleted)
+        let pruneProcess = Process()
+        pruneProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        pruneProcess.arguments = ["worktree", "prune"]
+        pruneProcess.currentDirectoryURL = URL(fileURLWithPath: mainRepoPath)
+        pruneProcess.standardOutput = FileHandle.nullDevice
+        pruneProcess.standardError = FileHandle.nullDevice
+        try? pruneProcess.run()
+        pruneProcess.waitUntilExit()
+        app?.logger.debug("[Worktree] Pruned stale worktree references")
+
         // Get the default branch name
         let defaultBranch = try await getDefaultBranch(mainRepoPath: mainRepoPath)
 

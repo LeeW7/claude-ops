@@ -103,6 +103,9 @@ public struct JobTriggerService {
 
         app.logger.info("Triggering Job: \(jobId) with /\(command) in \(workingPath)")
 
+        // Ensure logs directory exists
+        Job.ensureLogsDirectory()
+
         // Create job with worktree path
         let job = Job(
             repo: repo,
