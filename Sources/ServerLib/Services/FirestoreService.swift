@@ -92,9 +92,15 @@ public actor FirestoreService: PersistenceService {
         let cutoffTime = Int(Date().timeIntervalSince1970) - (maxJobAgeDays * 24 * 60 * 60)
 
         // Filter to jobs within maxJobAgeDays and sort by start time descending
+        // Secondary sort by job ID ensures stable ordering when times are equal
         let filtered = jobs
             .filter { $0.startTime > cutoffTime }
-            .sorted { $0.startTime > $1.startTime }
+            .sorted {
+                if $0.startTime != $1.startTime {
+                    return $0.startTime > $1.startTime
+                }
+                return $0.id > $1.id
+            }
 
         // Limit results
         if filtered.count > maxJobsToReturn {

@@ -202,8 +202,25 @@ class ServerManager: ObservableObject {
     }
 
     func getJobLogs(_ job: Job) async -> String {
+        guard app != nil else { return "Server not running" }
+        // Run file I/O on background thread to prevent UI freezes
+        return await Task.detached(priority: .userInitiated) {
+            LogParser.parseSummary(from: job.logPath).result ?? "No output yet..."
+        }.value
+    }
+
+    func getJobSummary(_ job: Job) async -> JobLogSummary {
+        return await Task.detached(priority: .userInitiated) {
+            LogParser.parseSummary(from: job.logPath)
+        }.value
+    }
+
+    func getJobRawLogs(_ job: Job) async -> String {
         guard let app = app else { return "Server not running" }
-        return await app.claudeService.readLog(path: job.logPath)
+        // Run file I/O on background thread to prevent UI freezes
+        return await Task.detached(priority: .userInitiated) {
+            app.claudeService.readLog(path: job.logPath)
+        }.value
     }
 
     // MARK: - Utilities
@@ -218,8 +235,12 @@ class ServerManager: ObservableObject {
             FileManager.default.currentDirectoryPath,
             // Bundle parent directory (for bundled app in project folder)
             Bundle.main.bundlePath + "/..",
-            // Two levels up (for nested builds)
-            Bundle.main.bundlePath + "/../.."
+            // Two levels up (for nested builds like .build/debug/)
+            Bundle.main.bundlePath + "/../..",
+            // Three levels up (for .build/arm64-apple-macosx/debug/)
+            Bundle.main.bundlePath + "/../../..",
+            // Four levels up (just in case)
+            Bundle.main.bundlePath + "/../../../.."
         ].compactMap { $0 }
 
         for path in candidates {
@@ -231,7 +252,8 @@ class ServerManager: ObservableObject {
             }
         }
 
-        print("[ServerManager] WARNING: No config found, using current directory")
+        print("[ServerManager] ERROR: No repo_map.json found in any expected location")
+        print("[ServerManager] The app requires repo_map.json to function. Please ensure it exists.")
         return FileManager.default.currentDirectoryPath
     }
 

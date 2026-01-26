@@ -606,11 +606,32 @@ public actor ClaudeService {
         return runningProcesses[jobId]?.isRunning ?? false
     }
 
+    /// Maximum bytes to read from log files to prevent UI freezes
+    private static let maxLogBytes: UInt64 = 512 * 1024  // 512KB
+
     /// Read log file contents
+    /// For large files (>512KB), only reads the tail to prevent UI freezes
     /// Nonisolated since it only does file I/O
     public nonisolated func readLog(path: String, stripANSI: Bool = true) -> String {
-        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else {
+        guard FileManager.default.fileExists(atPath: path) else {
             return "Waiting for output..."
+        }
+
+        // Check file size first
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let fileSize = attrs[.size] as? UInt64 else {
+            return "Waiting for output..."
+        }
+
+        let content: String
+        if fileSize > Self.maxLogBytes {
+            // For large files, read only the tail
+            content = readFileTail(path: path, maxBytes: Self.maxLogBytes)
+        } else {
+            guard let fullContent = try? String(contentsOfFile: path, encoding: .utf8) else {
+                return "Waiting for output..."
+            }
+            content = fullContent
         }
 
         if stripANSI {
@@ -619,12 +640,39 @@ public actor ClaudeService {
         return content
     }
 
+    /// Read the last N bytes of a file efficiently
+    private nonisolated func readFileTail(path: String, maxBytes: UInt64) -> String {
+        guard let handle = FileHandle(forReadingAtPath: path) else {
+            return "Waiting for output..."
+        }
+        defer { try? handle.close() }
+
+        // Seek to near the end
+        let fileSize = handle.seekToEndOfFile()
+        let startPos = fileSize > maxBytes ? fileSize - maxBytes : 0
+        handle.seek(toFileOffset: startPos)
+
+        guard let data = try? handle.readToEnd(),
+              var content = String(data: data, encoding: .utf8) else {
+            return "Waiting for output..."
+        }
+
+        // If we started mid-file, skip to the first complete line and add a notice
+        if startPos > 0 {
+            if let firstNewline = content.firstIndex(of: "\n") {
+                content = String(content[content.index(after: firstNewline)...])
+            }
+            content = "... (showing last ~500KB of log) ...\n\n" + content
+        }
+
+        return content
+    }
+
     /// Read last N lines of log file
     /// Nonisolated since it only does file I/O
     public nonisolated func readLogTail(path: String, lines: Int = 50, stripANSI: Bool = true) -> [String] {
-        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else {
-            return []
-        }
+        // Use the efficient tail reading for this too
+        let content = readFileTail(path: path, maxBytes: 64 * 1024)  // 64KB for tail
 
         let allLines = content.components(separatedBy: .newlines)
         let tailLines = Array(allLines.suffix(lines))
