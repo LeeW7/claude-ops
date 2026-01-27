@@ -79,4 +79,15 @@ public protocol PersistenceService: Actor {
 
     /// Delete all messages for a session
     func deleteQuickMessages(sessionId: String) async throws
+
+    // MARK: - Hidden Issues
+
+    /// Get all hidden issues
+    func getAllHiddenIssues() async throws -> [HiddenIssue]
+
+    /// Save/upsert a hidden issue
+    func saveHiddenIssue(_ issue: HiddenIssue) async throws
+
+    /// Delete a hidden issue by key
+    func deleteHiddenIssue(issueKey: String) async throws
 }

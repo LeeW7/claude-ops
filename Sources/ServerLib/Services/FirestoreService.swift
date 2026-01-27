@@ -438,6 +438,21 @@ public actor FirestoreService: PersistenceService {
         // No-op for Firestore backend
     }
 
+    // MARK: - Hidden Issues (Local only - not synced to Firestore)
+
+    public func getAllHiddenIssues() async throws -> [HiddenIssue] {
+        // Hidden issues not supported in Firestore backend
+        return []
+    }
+
+    public func saveHiddenIssue(_ issue: HiddenIssue) async throws {
+        // No-op for Firestore backend
+    }
+
+    public func deleteHiddenIssue(issueKey: String) async throws {
+        // No-op for Firestore backend
+    }
+
     // MARK: - Analytics (Phase 5)
 
     /// Record job cost for analytics
