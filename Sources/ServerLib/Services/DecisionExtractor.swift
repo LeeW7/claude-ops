@@ -50,8 +50,11 @@ public struct DecisionExtractor {
         "perhaps",
     ]
 
-    /// Extract decisions from text content
-    public static func extractDecisions(from text: String, jobId: String) -> [JobDecision] {
+    /// Extract decisions from log content (handles both plain text and streaming JSON)
+    public static func extractDecisions(from logContent: String, jobId: String) -> [JobDecision] {
+        // First, reconstruct plain text from streaming JSON format
+        let text = reconstructTextFromStreamingLog(logContent)
+
         var decisions: [JobDecision] = []
         var seenActions: Set<String> = []
 
@@ -214,5 +217,64 @@ public struct DecisionExtractor {
             cleaned = String(cleaned.dropLast())
         }
         return cleaned
+    }
+
+    /// Reconstruct plain text from streaming JSON log format
+    /// Handles logs that contain streaming events like:
+    /// {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"..."}}}
+    private static func reconstructTextFromStreamingLog(_ logContent: String) -> String {
+        var fullText = ""
+
+        // Process line by line
+        let lines = logContent.components(separatedBy: .newlines)
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+
+            // Try to parse as JSON
+            guard let data = trimmed.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                // Not JSON - might be plain text, include it
+                if !trimmed.hasPrefix("{") {
+                    fullText += trimmed + " "
+                }
+                continue
+            }
+
+            // Handle stream_event with text_delta
+            if let eventType = json["type"] as? String, eventType == "stream_event",
+               let event = json["event"] as? [String: Any],
+               let delta = event["delta"] as? [String: Any],
+               let deltaType = delta["type"] as? String, deltaType == "text_delta",
+               let text = delta["text"] as? String {
+                fullText += text
+                continue
+            }
+
+            // Handle content_block_delta directly (some formats)
+            if let eventType = json["type"] as? String, eventType == "content_block_delta",
+               let delta = json["delta"] as? [String: Any],
+               let deltaType = delta["type"] as? String, deltaType == "text_delta",
+               let text = delta["text"] as? String {
+                fullText += text
+                continue
+            }
+
+            // Handle assistant message with content array
+            if let eventType = json["type"] as? String, eventType == "assistant",
+               let message = json["message"] as? [String: Any],
+               let content = message["content"] as? [[String: Any]] {
+                for item in content {
+                    if let itemType = item["type"] as? String, itemType == "text",
+                       let text = item["text"] as? String {
+                        fullText += text + " "
+                    }
+                }
+                continue
+            }
+        }
+
+        return fullText
     }
 }

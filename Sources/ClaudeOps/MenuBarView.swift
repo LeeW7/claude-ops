@@ -197,7 +197,9 @@ struct MenuBarView: View {
                 Button("Quit") {
                     Task {
                         await serverManager.stopServer()
-                        NSApplication.shared.terminate(nil)
+                        await MainActor.run {
+                            NSApplication.shared.terminate(nil)
+                        }
                     }
                 }
                 .buttonStyle(.plain)
