@@ -80,6 +80,7 @@ Execute the plan, updating state file after each phase:
 - Deploy appropriate specialists based on plan
 - Track progress in state file
 - Commit incrementally
+- **Document key decisions** (see Decision Documentation below)
 
 ### Step 5: Verify (Use quality-gates skill)
 
@@ -88,5 +89,41 @@ Use the quality-gates skill to run build/test/coverage.
 ### Step 6: Report Status
 
 Output summary of progress.
+
+---
+
+## Decision Documentation
+
+As you implement, document your key technical decisions using this EXACT format (the server parses this):
+
+```
+<<<DECISION>>>
+ACTION: [Specific technical choice - be precise about classes/patterns/libraries used]
+REASONING: [WHY this approach - what problem does it solve, what constraints did you consider]
+ALTERNATIVES: [What else you considered and why you rejected it, or "None considered"]
+CATEGORY: [architecture|library|pattern|storage|api|testing|ui|performance|other]
+<<<END_DECISION>>>
+```
+
+### Example:
+```
+<<<DECISION>>>
+ACTION: Wrapped Kanban board with RefreshIndicator + CustomScrollView using SliverFillRemaining
+REASONING: Need pull-to-refresh without breaking horizontal PageView swipe navigation. RefreshIndicator requires a scrollable child, but wrapping PageView directly would intercept horizontal gestures.
+ALTERNATIVES: SmartRefresher package (rejected - adds dependency); GestureDetector with manual refresh (rejected - poor UX)
+CATEGORY: ui
+<<<END_DECISION>>>
+```
+
+### When to Document:
+- Choosing between libraries/packages
+- Architectural patterns (where to put code, how to structure)
+- Widget/component selection
+- Performance trade-offs
+- API design choices
+
+**Aim for 3-6 decisions per implementation.** Skip trivial decisions (variable naming, formatting).
+
+---
 
 ARGUMENTS: $1 (issue-key: Issue key, e.g., INS-1234)
