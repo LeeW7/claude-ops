@@ -108,64 +108,111 @@ public struct DecisionExtractor {
         return extractNaturalLanguageDecisions(from: text, jobId: jobId)
     }
 
-    /// Extract decisions from structured format (DECISION:/REASONING:/etc.)
+    /// Extract decisions from structured format (<<<DECISION>>> blocks)
     private static func extractStructuredDecisions(from text: String, jobId: String) -> [JobDecision] {
         var decisions: [JobDecision] = []
 
-        // Pattern to match structured decision blocks
-        // DECISION: [action]
+        // Primary pattern: <<<DECISION>>> ... <<<END_DECISION>>> blocks
+        // ACTION: [action]
         // REASONING: [reason]
         // ALTERNATIVES: [alternatives]
         // CATEGORY: [category]
-        let blockPattern = #"DECISION:\s*(.+?)[\n\r]+REASONING:\s*(.+?)[\n\r]+(?:ALTERNATIVES:\s*(.+?)[\n\r]+)?(?:CATEGORY:\s*(.+?))?(?:[\n\r]|$)"#
+        let blockPattern = #"<<<DECISION>>>\s*ACTION:\s*(.+?)\s*REASONING:\s*(.+?)\s*(?:ALTERNATIVES:\s*(.+?)\s*)?(?:CATEGORY:\s*(\w+)\s*)?<<<END_DECISION>>>"#
 
-        guard let regex = try? NSRegularExpression(pattern: blockPattern, options: [.dotMatchesLineSeparators]) else {
-            return []
+        if let regex = try? NSRegularExpression(pattern: blockPattern, options: [.dotMatchesLineSeparators]) {
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            regex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+                guard let match = match,
+                      let actionRange = Range(match.range(at: 1), in: text),
+                      let reasonRange = Range(match.range(at: 2), in: text) else {
+                    return
+                }
+
+                let action = String(text[actionRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let reasoning = String(text[reasonRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+                // Extract optional alternatives
+                var alternatives: [String]?
+                if match.range(at: 3).location != NSNotFound,
+                   let altRange = Range(match.range(at: 3), in: text) {
+                    let altText = String(text[altRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !altText.isEmpty && !altText.lowercased().hasPrefix("none") {
+                        // Split on semicolons (alternatives often contain commas in descriptions)
+                        alternatives = altText
+                            .components(separatedBy: ";")
+                            .map { $0.trimmingCharacters(in: .whitespaces) }
+                            .filter { !$0.isEmpty }
+                    }
+                }
+
+                // Extract optional category
+                var category: DecisionCategory = .other
+                if match.range(at: 4).location != NSNotFound,
+                   let catRange = Range(match.range(at: 4), in: text) {
+                    let catText = String(text[catRange]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    category = DecisionCategory(rawValue: catText) ?? categorizeDecision(action: action, reasoning: reasoning)
+                } else {
+                    category = categorizeDecision(action: action, reasoning: reasoning)
+                }
+
+                let decision = JobDecision(
+                    jobId: jobId,
+                    action: cleanAction(action),
+                    reasoning: cleanReasoning(reasoning),
+                    alternatives: alternatives,
+                    category: category
+                )
+                decisions.append(decision)
+            }
         }
 
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        regex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
-            guard let match = match,
-                  let actionRange = Range(match.range(at: 1), in: text),
-                  let reasonRange = Range(match.range(at: 2), in: text) else {
-                return
-            }
+        // If no <<<DECISION>>> blocks found, try legacy DECISION:/REASONING: format
+        if decisions.isEmpty {
+            let legacyPattern = #"DECISION:\s*(.+?)[\n\r]+REASONING:\s*(.+?)[\n\r]+(?:ALTERNATIVES:\s*(.+?)[\n\r]+)?(?:CATEGORY:\s*(.+?))?(?:[\n\r]{2}|$)"#
 
-            let action = String(text[actionRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let reasoning = String(text[reasonRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let regex = try? NSRegularExpression(pattern: legacyPattern, options: [.dotMatchesLineSeparators]) {
+                let range = NSRange(text.startIndex..<text.endIndex, in: text)
+                regex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+                    guard let match = match,
+                          let actionRange = Range(match.range(at: 1), in: text),
+                          let reasonRange = Range(match.range(at: 2), in: text) else {
+                        return
+                    }
 
-            // Extract optional alternatives
-            var alternatives: [String]?
-            if match.range(at: 3).location != NSNotFound,
-               let altRange = Range(match.range(at: 3), in: text) {
-                let altText = String(text[altRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !altText.isEmpty && altText.lowercased() != "none" {
-                    // Split on commas or semicolons
-                    alternatives = altText
-                        .components(separatedBy: CharacterSet(charactersIn: ",;"))
-                        .map { $0.trimmingCharacters(in: .whitespaces) }
-                        .filter { !$0.isEmpty }
+                    let action = String(text[actionRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let reasoning = String(text[reasonRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    var alternatives: [String]?
+                    if match.range(at: 3).location != NSNotFound,
+                       let altRange = Range(match.range(at: 3), in: text) {
+                        let altText = String(text[altRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !altText.isEmpty && !altText.lowercased().hasPrefix("none") {
+                            alternatives = altText
+                                .components(separatedBy: ";")
+                                .map { $0.trimmingCharacters(in: .whitespaces) }
+                                .filter { !$0.isEmpty }
+                        }
+                    }
+
+                    var category: DecisionCategory = .other
+                    if match.range(at: 4).location != NSNotFound,
+                       let catRange = Range(match.range(at: 4), in: text) {
+                        let catText = String(text[catRange]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        category = DecisionCategory(rawValue: catText) ?? categorizeDecision(action: action, reasoning: reasoning)
+                    } else {
+                        category = categorizeDecision(action: action, reasoning: reasoning)
+                    }
+
+                    let decision = JobDecision(
+                        jobId: jobId,
+                        action: cleanAction(action),
+                        reasoning: cleanReasoning(reasoning),
+                        alternatives: alternatives,
+                        category: category
+                    )
+                    decisions.append(decision)
                 }
             }
-
-            // Extract optional category
-            var category: DecisionCategory = .other
-            if match.range(at: 4).location != NSNotFound,
-               let catRange = Range(match.range(at: 4), in: text) {
-                let catText = String(text[catRange]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                category = DecisionCategory(rawValue: catText) ?? categorizeDecision(action: action, reasoning: reasoning)
-            } else {
-                category = categorizeDecision(action: action, reasoning: reasoning)
-            }
-
-            let decision = JobDecision(
-                jobId: jobId,
-                action: cleanAction(action),
-                reasoning: cleanReasoning(reasoning),
-                alternatives: alternatives,
-                category: category
-            )
-            decisions.append(decision)
         }
 
         return decisions
