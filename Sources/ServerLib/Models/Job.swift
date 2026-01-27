@@ -227,8 +227,9 @@ public struct JobResponse: Content {
     public let issue_title: String
     public let issue_num: Int
     public let logs: [String]?
+    public let decisions: [JobDecision]?
 
-    public init(from job: Job, logs: [String]? = []) {
+    public init(from job: Job, logs: [String]? = [], decisions: [JobDecision]? = nil) {
         self.issueId = job.id
         self.issue_id = job.id
         self.status = job.status.rawValue
@@ -239,6 +240,7 @@ public struct JobResponse: Content {
         self.issue_title = job.issueTitle
         self.issue_num = job.issueNum
         self.logs = logs
+        self.decisions = decisions
     }
 }
 

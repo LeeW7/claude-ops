@@ -28,7 +28,7 @@ struct JobController: RouteCollection {
         routes.post("reject", use: rejectLegacy)
     }
 
-    /// List all jobs with last 50 log lines
+    /// List all jobs with last 50 log lines and decisions
     @Sendable
     func listJobs(req: Request) async throws -> [JobResponse] {
         let jobs = try await req.application.persistenceService.getAllJobs()
@@ -36,7 +36,19 @@ struct JobController: RouteCollection {
         var responses: [JobResponse] = []
         for job in jobs {
             let logs = await req.application.claudeService.readLogTail(path: job.logPath, lines: 50)
-            responses.append(JobResponse(from: job, logs: logs))
+            var decisions = try? await req.application.persistenceService.getDecisionsForJob(jobId: job.id)
+
+            // Extract on-demand for completed jobs without decisions
+            if (decisions == nil || decisions?.isEmpty == true) && job.status == .completed {
+                let fullLogs = await req.application.claudeService.readLog(path: job.logPath)
+                let extracted = DecisionExtractor.extractDecisions(from: fullLogs, jobId: job.id)
+                if !extracted.isEmpty {
+                    try? await req.application.persistenceService.saveDecisions(extracted)
+                    decisions = extracted
+                }
+            }
+
+            responses.append(JobResponse(from: job, logs: logs, decisions: decisions))
         }
         return responses
     }
@@ -123,8 +135,18 @@ struct JobController: RouteCollection {
 
         let logs = await req.application.claudeService.readLog(path: job.logPath)
 
-        // Include decisions if available
-        let decisions = try? await req.application.persistenceService.getDecisionsForJob(jobId: job.id)
+        // Get existing decisions or extract them on-the-fly for completed jobs
+        var decisions = try? await req.application.persistenceService.getDecisionsForJob(jobId: job.id)
+
+        // If no decisions exist and job is completed, extract them now
+        if (decisions == nil || decisions?.isEmpty == true) && job.status == .completed {
+            let extracted = DecisionExtractor.extractDecisions(from: logs, jobId: job.id)
+            if !extracted.isEmpty {
+                try? await req.application.persistenceService.saveDecisions(extracted)
+                decisions = extracted
+                req.logger.info("[\(job.id)] Extracted \(extracted.count) decisions on-demand")
+            }
+        }
 
         return LogResponse(from: job, logs: logs, decisions: decisions)
     }
