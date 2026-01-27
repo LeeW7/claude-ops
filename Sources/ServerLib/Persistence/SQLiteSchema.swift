@@ -268,6 +268,51 @@ struct QuickMessageRecord: Codable, FetchableRecord, PersistableRecord {
     }
 }
 
+// MARK: - Hidden Issue Record
+
+/// SQLite record for HiddenIssue model
+struct HiddenIssueRecord: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "hidden_issues"
+
+    var issueKey: String
+    var repo: String
+    var issueNum: Int
+    var issueTitle: String
+    var hiddenAt: Int64
+    var reason: String
+
+    enum Columns {
+        static let issueKey = Column(CodingKeys.issueKey)
+        static let repo = Column(CodingKeys.repo)
+        static let issueNum = Column(CodingKeys.issueNum)
+        static let issueTitle = Column(CodingKeys.issueTitle)
+        static let hiddenAt = Column(CodingKeys.hiddenAt)
+        static let reason = Column(CodingKeys.reason)
+    }
+
+    /// Convert from HiddenIssue model
+    init(from issue: HiddenIssue) {
+        self.issueKey = issue.issueKey
+        self.repo = issue.repo
+        self.issueNum = issue.issueNum
+        self.issueTitle = issue.issueTitle
+        self.hiddenAt = issue.hiddenAt
+        self.reason = issue.reason.rawValue
+    }
+
+    /// Convert to HiddenIssue model
+    func toHiddenIssue() -> HiddenIssue {
+        HiddenIssue(
+            issueKey: issueKey,
+            repo: repo,
+            issueNum: issueNum,
+            issueTitle: issueTitle,
+            hiddenAt: hiddenAt,
+            reason: HiddenIssueReason(rawValue: reason) ?? .user
+        )
+    }
+}
+
 // MARK: - Migrations
 
 /// Database migrations for SQLite schema
@@ -358,6 +403,21 @@ struct SQLiteMigrations {
             // Indexes
             try db.create(index: "quick_messages_sessionId", on: "quick_messages", columns: ["sessionId"])
             try db.create(index: "quick_messages_timestamp", on: "quick_messages", columns: ["timestamp"])
+        }
+
+        // Migration v5: Create hidden_issues table
+        migrator.registerMigration("v5_create_hidden_issues") { db in
+            try db.create(table: "hidden_issues") { t in
+                t.column("issueKey", .text).primaryKey()
+                t.column("repo", .text).notNull()
+                t.column("issueNum", .integer).notNull()
+                t.column("issueTitle", .text).notNull()
+                t.column("hiddenAt", .integer).notNull()
+                t.column("reason", .text).notNull().defaults(to: "user")
+            }
+
+            // Index for querying by repo
+            try db.create(index: "hidden_issues_repo", on: "hidden_issues", columns: ["repo"])
         }
 
         return migrator

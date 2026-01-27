@@ -300,6 +300,31 @@ public actor SQLitePersistenceService: PersistenceService {
         }
     }
 
+    // MARK: - Hidden Issues
+
+    public func getAllHiddenIssues() async throws -> [HiddenIssue] {
+        try await dbPool.read { db in
+            try HiddenIssueRecord
+                .order(HiddenIssueRecord.Columns.hiddenAt.desc)
+                .fetchAll(db)
+                .map { $0.toHiddenIssue() }
+        }
+    }
+
+    public func saveHiddenIssue(_ issue: HiddenIssue) async throws {
+        let record = HiddenIssueRecord(from: issue)
+        try await dbPool.write { db in
+            // INSERT OR REPLACE (upsert)
+            try record.save(db)
+        }
+    }
+
+    public func deleteHiddenIssue(issueKey: String) async throws {
+        _ = try await dbPool.write { db in
+            try HiddenIssueRecord.deleteOne(db, key: issueKey)
+        }
+    }
+
     // MARK: - Migration from jobs.json
 
     private func migrateFromJobsJson() async throws {

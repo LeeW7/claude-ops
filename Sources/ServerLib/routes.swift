@@ -14,4 +14,5 @@ func routes(_ app: Application) throws {
     try app.register(collection: ImageController())
     try app.register(collection: WebSocketController())
     try app.register(collection: QuickSessionController())
+    try app.register(collection: HiddenIssueController())
 }
