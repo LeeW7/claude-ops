@@ -9,6 +9,7 @@ public enum DecisionCategory: String, Codable, Sendable {
     case storage
     case api
     case testing
+    case ui
     case other
 }
 

@@ -5,6 +5,7 @@ public struct DecisionExtractor {
 
     /// Patterns that indicate a decision with reasoning
     private static let decisionPatterns: [(pattern: String, actionGroup: Int, reasonGroup: Int)] = [
+        // === Explicit decisions ===
         // "I'll [action] because [reason]"
         (#"I'll\s+(.+?)\s+because\s+(.+?)(?:\.|$)"#, 1, 2),
         // "I'm going to [action] because [reason]"
@@ -15,20 +16,62 @@ public struct DecisionExtractor {
         (#"I decided to\s+(.+?)\s+because\s+(.+?)(?:\.|$)"#, 1, 2),
         // "I'm opting for [action] because [reason]"
         (#"I'm opting for\s+(.+?)\s+because\s+(.+?)(?:\.|$)"#, 1, 2),
-        // "Using [action] because [reason]"
-        (#"Using\s+(.+?)\s+because\s+(.+?)(?:\.|$)"#, 1, 2),
-        // "Using [action] since [reason]"
-        (#"Using\s+(.+?)\s+since\s+(.+?)(?:\.|$)"#, 1, 2),
         // "The best approach is [action] because [reason]"
         (#"The best approach is\s+(.+?)\s+because\s+(.+?)(?:\.|$)"#, 1, 2),
         // "[Action] is better here because [reason]"
         (#"(.+?)\s+is better (?:here\s+)?because\s+(.+?)(?:\.|$)"#, 1, 2),
-        // "I decided to [action] to [reason]"
-        (#"I decided to\s+(.+?)\s+to\s+(.+?)(?:\.|$)"#, 1, 2),
         // "Let's use [action] because [reason]"
         (#"Let's use\s+(.+?)\s+because\s+(.+?)(?:\.|$)"#, 1, 2),
+
+        // === Implicit decisions with "to" ===
+        // "Uses [action] to [reason]"
+        (#"Uses\s+(.+?)\s+to\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "Using [action] to [reason]"
+        (#"Using\s+(.+?)\s+to\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "Added [action] to [reason]"
+        (#"Added\s+(.+?)\s+to\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "Added [action] for [reason]"
+        (#"Added\s+(.+?)\s+for\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "I decided to [action] to [reason]"
+        (#"I decided to\s+(.+?)\s+to\s+(.+?)(?:\.|$)"#, 1, 2),
+
+        // === Implicit decisions with "because/since/for" ===
+        // "Using [action] because [reason]"
+        (#"Using\s+(.+?)\s+because\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "Using [action] since [reason]"
+        (#"Using\s+(.+?)\s+since\s+(.+?)(?:\.|$)"#, 1, 2),
         // "I'll use [action] since [reason]"
         (#"I'll use\s+(.+?)\s+since\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "Went with [action] since [reason]"
+        (#"[Ww]ent with\s+(.+?)\s+(?:since|for|because)\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "[action] approach for [reason]"
+        (#"(.+?)\s+approach\s+(?:for|because|since)\s+(.+?)(?:\.|$)"#, 1, 2),
+
+        // === Technical implementation patterns ===
+        // "Implemented [action] using [reason/method]"
+        (#"[Ii]mplemented\s+(.+?)\s+using\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "Wrapped [action] with [wrapper] to [reason]"
+        (#"[Ww]rapped\s+(.+?)\s+with\s+(.+?)\s+to\s+.+?(?:\.|$)"#, 1, 2),
+        // "with [action] to preserve/enable/allow [reason]"
+        (#"with\s+(.+?)\s+to\s+(?:preserve|enable|allow|ensure|maintain|support)\s+(.+?)(?:\.|$)"#, 1, 2),
+
+        // === Comparison patterns ===
+        // "[action] instead of [alternative] because/since/for [reason]"
+        (#"(.+?)\s+instead of\s+.+?\s+(?:because|since|for)\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "[action] rather than [alternative] because/since/for [reason]"
+        (#"(.+?)\s+rather than\s+.+?\s+(?:because|since|for)\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "Opted for [action] because/since/for [reason]"
+        (#"[Oo]pted for\s+(.+?)\s+(?:because|since|for)\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "Opted for [action] to [reason]"
+        (#"[Oo]pted for\s+(.+?)\s+to\s+(.+?)(?:\.|$)"#, 1, 2),
+
+        // === Created/Built patterns ===
+        // "Created [action] to [reason]"
+        (#"[Cc]reated\s+(.+?)\s+to\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "Built [action] to [reason]"
+        (#"[Bb]uilt\s+(.+?)\s+to\s+(.+?)(?:\.|$)"#, 1, 2),
+        // "Set up [action] to [reason]"
+        (#"[Ss]et up\s+(.+?)\s+to\s+(.+?)(?:\.|$)"#, 1, 2),
     ]
 
     /// Patterns for extracting alternatives (e.g., "X over Y", "X instead of Y")
@@ -88,8 +131,8 @@ public struct DecisionExtractor {
                     let reasoning = String(trimmed[reasonRange]).trimmingCharacters(in: .whitespaces)
 
                     // Skip if action is too short or too long
-                    guard action.count >= 5 && action.count <= 200 else { continue }
-                    guard reasoning.count >= 10 && reasoning.count <= 500 else { continue }
+                    guard action.count >= 3 && action.count <= 300 else { continue }
+                    guard reasoning.count >= 5 && reasoning.count <= 500 else { continue }
 
                     // Deduplicate by normalized action
                     let normalizedAction = normalizeAction(action)
@@ -148,6 +191,20 @@ public struct DecisionExtractor {
     /// Categorize a decision based on keywords
     private static func categorizeDecision(action: String, reasoning: String) -> DecisionCategory {
         let combined = (action + " " + reasoning).lowercased()
+
+        // UI/Widget decisions (check first - most specific for Flutter/SwiftUI)
+        if combined.contains("widget") || combined.contains("view") ||
+           combined.contains("scaffold") || combined.contains("container") ||
+           combined.contains("listview") || combined.contains("gridview") ||
+           combined.contains("pageview") || combined.contains("scrollview") ||
+           combined.contains("customscroll") || combined.contains("sliver") ||
+           combined.contains("refreshindicator") || combined.contains("gesture") ||
+           combined.contains("swip") || combined.contains("pull") ||
+           combined.contains("animation") || combined.contains("transition") ||
+           combined.contains("layout") || combined.contains("padding") ||
+           combined.contains("margin") || combined.contains("stack") {
+            return .ui
+        }
 
         if combined.contains("architect") || combined.contains("structure") ||
            combined.contains("layer") || combined.contains("separation") ||
