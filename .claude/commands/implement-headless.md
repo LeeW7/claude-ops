@@ -43,6 +43,37 @@ Analyze the comment history to determine your action:
 
 ---
 
+## Decision Documentation
+
+When you make significant implementation choices, document them using this exact format:
+
+```
+DECISION: [Brief action/choice taken]
+REASONING: [Why this approach was chosen]
+ALTERNATIVES: [Other options considered, or "None"]
+CATEGORY: [One of: architecture, library, pattern, storage, api, testing, ui, other]
+```
+
+**Example:**
+```
+DECISION: Used RefreshIndicator with CustomScrollView and SliverFillRemaining
+REASONING: Preserves horizontal PageView swiping while enabling vertical pull-to-refresh gesture
+ALTERNATIVES: ListView with RefreshIndicator (would break horizontal swipe), NestedScrollView (overcomplicated)
+CATEGORY: ui
+```
+
+**When to document decisions:**
+- Architectural choices (how components are structured)
+- Library/package selections
+- Design pattern choices
+- Widget/UI component selections
+- Trade-offs you considered
+- Non-obvious technical approaches
+
+**Document 3-8 key decisions per implementation.** Focus on choices that would help future developers understand why the code is structured the way it is.
+
+---
+
 ## Prerequisites
 
 **Read these before proceeding:**

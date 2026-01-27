@@ -98,6 +98,81 @@ public struct DecisionExtractor {
         // First, reconstruct plain text from streaming JSON format
         let text = reconstructTextFromStreamingLog(logContent)
 
+        // Try structured format first (DECISION:/REASONING:/ALTERNATIVES:/CATEGORY:)
+        let structuredDecisions = extractStructuredDecisions(from: text, jobId: jobId)
+        if !structuredDecisions.isEmpty {
+            return structuredDecisions
+        }
+
+        // Fall back to natural language pattern matching
+        return extractNaturalLanguageDecisions(from: text, jobId: jobId)
+    }
+
+    /// Extract decisions from structured format (DECISION:/REASONING:/etc.)
+    private static func extractStructuredDecisions(from text: String, jobId: String) -> [JobDecision] {
+        var decisions: [JobDecision] = []
+
+        // Pattern to match structured decision blocks
+        // DECISION: [action]
+        // REASONING: [reason]
+        // ALTERNATIVES: [alternatives]
+        // CATEGORY: [category]
+        let blockPattern = #"DECISION:\s*(.+?)[\n\r]+REASONING:\s*(.+?)[\n\r]+(?:ALTERNATIVES:\s*(.+?)[\n\r]+)?(?:CATEGORY:\s*(.+?))?(?:[\n\r]|$)"#
+
+        guard let regex = try? NSRegularExpression(pattern: blockPattern, options: [.dotMatchesLineSeparators]) else {
+            return []
+        }
+
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        regex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+            guard let match = match,
+                  let actionRange = Range(match.range(at: 1), in: text),
+                  let reasonRange = Range(match.range(at: 2), in: text) else {
+                return
+            }
+
+            let action = String(text[actionRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let reasoning = String(text[reasonRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Extract optional alternatives
+            var alternatives: [String]?
+            if match.range(at: 3).location != NSNotFound,
+               let altRange = Range(match.range(at: 3), in: text) {
+                let altText = String(text[altRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !altText.isEmpty && altText.lowercased() != "none" {
+                    // Split on commas or semicolons
+                    alternatives = altText
+                        .components(separatedBy: CharacterSet(charactersIn: ",;"))
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                }
+            }
+
+            // Extract optional category
+            var category: DecisionCategory = .other
+            if match.range(at: 4).location != NSNotFound,
+               let catRange = Range(match.range(at: 4), in: text) {
+                let catText = String(text[catRange]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                category = DecisionCategory(rawValue: catText) ?? categorizeDecision(action: action, reasoning: reasoning)
+            } else {
+                category = categorizeDecision(action: action, reasoning: reasoning)
+            }
+
+            let decision = JobDecision(
+                jobId: jobId,
+                action: cleanAction(action),
+                reasoning: cleanReasoning(reasoning),
+                alternatives: alternatives,
+                category: category
+            )
+            decisions.append(decision)
+        }
+
+        return decisions
+    }
+
+    /// Extract decisions using natural language patterns (fallback)
+    private static func extractNaturalLanguageDecisions(from text: String, jobId: String) -> [JobDecision] {
         var decisions: [JobDecision] = []
         var seenActions: Set<String> = []
 
