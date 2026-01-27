@@ -43,6 +43,56 @@ Analyze the comment history to determine your action:
 
 ---
 
+## Decision Documentation
+
+As you implement, document your key technical decisions using this EXACT format (the server parses this):
+
+```
+<<<DECISION>>>
+ACTION: [Specific technical choice - be precise about classes/patterns/libraries used]
+REASONING: [WHY this approach - what problem does it solve, what constraints did you consider]
+ALTERNATIVES: [What else you considered and why you rejected it, or "None considered"]
+CATEGORY: [architecture|library|pattern|storage|api|testing|ui|performance|other]
+<<<END_DECISION>>>
+```
+
+### Example 1 - Widget Choice:
+```
+<<<DECISION>>>
+ACTION: Wrapped Kanban board with RefreshIndicator + CustomScrollView using SliverFillRemaining
+REASONING: Need pull-to-refresh without breaking horizontal PageView swipe navigation. RefreshIndicator requires a scrollable child, but wrapping PageView directly would intercept horizontal gestures. CustomScrollView with SliverFillRemaining preserves the PageView while enabling vertical overscroll detection.
+ALTERNATIVES: Considered SmartRefresher package (rejected - adds dependency for simple feature); Considered GestureDetector with manual refresh logic (rejected - poor UX, no native pull animation)
+CATEGORY: ui
+<<<END_DECISION>>>
+```
+
+### Example 2 - State Management:
+```
+<<<DECISION>>>
+ACTION: Added decisions field to Job model and IssueBoardProvider
+REASONING: Decisions are job-specific data that needs to persist across app sessions and be accessible from multiple screens. Following existing pattern where Job contains all job metadata.
+ALTERNATIVES: Considered separate DecisionsProvider (rejected - would duplicate job lookups and complicate state sync)
+CATEGORY: architecture
+<<<END_DECISION>>>
+```
+
+### When to Document Decisions:
+- Choosing between libraries/packages
+- Architectural patterns (where to put code, how to structure)
+- Widget/component selection
+- Performance trade-offs
+- API design choices
+- Anything where you considered multiple approaches
+
+### Guidelines:
+- **Be specific:** "RefreshIndicator" not "a refresh widget"
+- **Explain the WHY:** constraints, trade-offs, requirements that drove the choice
+- **Mention rejected alternatives** when relevant
+- **Aim for 3-6 decisions** per implementation
+- **Skip trivial decisions** (variable naming, formatting)
+
+---
+
 ## Prerequisites
 
 **Read these before proceeding:**

@@ -253,6 +253,18 @@ public actor ClaudeService {
                     cost: costData
                 )
 
+                // Extract decisions from the log output
+                let logContent = readLog(path: job.logPath, stripANSI: true)
+                let decisions = DecisionExtractor.extractDecisions(from: logContent, jobId: job.id)
+                if !decisions.isEmpty {
+                    do {
+                        try await app.persistenceService.saveDecisions(decisions)
+                        app.logger.info("[\(job.id)] Extracted \(decisions.count) decisions from job output")
+                    } catch {
+                        app.logger.warning("[\(job.id)] Failed to save decisions: \(error)")
+                    }
+                }
+
                 // Broadcast result via WebSocket (per-job)
                 let resultMessage = StreamMessage(
                     type: .result,

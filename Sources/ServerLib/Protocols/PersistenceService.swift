@@ -90,4 +90,18 @@ public protocol PersistenceService: Actor {
 
     /// Delete a hidden issue by key
     func deleteHiddenIssue(issueKey: String) async throws
+
+    // MARK: - Job Decisions
+
+    /// Get all decisions for a job
+    func getDecisionsForJob(jobId: String) async throws -> [JobDecision]
+
+    /// Save a single decision
+    func saveDecision(_ decision: JobDecision) async throws
+
+    /// Save multiple decisions
+    func saveDecisions(_ decisions: [JobDecision]) async throws
+
+    /// Delete all decisions for a job
+    func deleteDecisionsForJob(jobId: String) async throws
 }

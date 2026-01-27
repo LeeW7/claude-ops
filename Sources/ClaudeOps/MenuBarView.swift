@@ -195,10 +195,9 @@ struct MenuBarView: View {
                 }
 
                 Button("Quit") {
-                    Task {
-                        await serverManager.stopServer()
-                        NSApplication.shared.terminate(nil)
-                    }
+                    // Don't wait for stopServer - just terminate immediately
+                    // The OS will clean up child processes
+                    NSApplication.shared.terminate(nil)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)

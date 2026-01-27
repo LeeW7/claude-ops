@@ -453,6 +453,25 @@ public actor FirestoreService: PersistenceService {
         // No-op for Firestore backend
     }
 
+    // MARK: - Job Decisions (Local only - not synced to Firestore)
+
+    public func getDecisionsForJob(jobId: String) async throws -> [JobDecision] {
+        // Job decisions not supported in Firestore backend
+        return []
+    }
+
+    public func saveDecision(_ decision: JobDecision) async throws {
+        // No-op for Firestore backend
+    }
+
+    public func saveDecisions(_ decisions: [JobDecision]) async throws {
+        // No-op for Firestore backend
+    }
+
+    public func deleteDecisionsForJob(jobId: String) async throws {
+        // No-op for Firestore backend
+    }
+
     // MARK: - Analytics (Phase 5)
 
     /// Record job cost for analytics

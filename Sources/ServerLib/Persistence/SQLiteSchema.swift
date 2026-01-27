@@ -313,6 +313,66 @@ struct HiddenIssueRecord: Codable, FetchableRecord, PersistableRecord {
     }
 }
 
+// MARK: - Job Decision Record
+
+/// SQLite record for JobDecision model
+struct JobDecisionRecord: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "job_decisions"
+
+    var id: String
+    var jobId: String
+    var action: String
+    var reasoning: String
+    var alternativesJson: String?  // JSON array
+    var category: String?
+    var timestamp: Date
+
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let jobId = Column(CodingKeys.jobId)
+        static let action = Column(CodingKeys.action)
+        static let reasoning = Column(CodingKeys.reasoning)
+        static let alternativesJson = Column(CodingKeys.alternativesJson)
+        static let category = Column(CodingKeys.category)
+        static let timestamp = Column(CodingKeys.timestamp)
+    }
+
+    /// Convert from JobDecision model
+    init(from decision: JobDecision) {
+        self.id = decision.id
+        self.jobId = decision.jobId
+        self.action = decision.action
+        self.reasoning = decision.reasoning
+        self.timestamp = decision.timestamp
+        self.category = decision.category?.rawValue
+
+        // Encode alternatives as JSON
+        if let alternatives = decision.alternatives {
+            self.alternativesJson = try? String(data: JSONEncoder().encode(alternatives), encoding: .utf8)
+        }
+    }
+
+    /// Convert to JobDecision model
+    func toJobDecision() -> JobDecision {
+        // Decode alternatives from JSON
+        var alternatives: [String]?
+        if let json = alternativesJson,
+           let data = json.data(using: .utf8) {
+            alternatives = try? JSONDecoder().decode([String].self, from: data)
+        }
+
+        return JobDecision(
+            id: id,
+            jobId: jobId,
+            action: action,
+            reasoning: reasoning,
+            alternatives: alternatives,
+            category: category.flatMap { DecisionCategory(rawValue: $0) },
+            timestamp: timestamp
+        )
+    }
+}
+
 // MARK: - Migrations
 
 /// Database migrations for SQLite schema
@@ -418,6 +478,24 @@ struct SQLiteMigrations {
 
             // Index for querying by repo
             try db.create(index: "hidden_issues_repo", on: "hidden_issues", columns: ["repo"])
+        }
+
+        // Migration v6: Create job_decisions table
+        migrator.registerMigration("v6_create_job_decisions") { db in
+            try db.create(table: "job_decisions") { t in
+                t.column("id", .text).primaryKey()
+                t.column("jobId", .text).notNull()
+                    .references("jobs", onDelete: .cascade)
+                t.column("action", .text).notNull()
+                t.column("reasoning", .text).notNull()
+                t.column("alternativesJson", .text)  // JSON array
+                t.column("category", .text)
+                t.column("timestamp", .datetime).notNull()
+            }
+
+            // Indexes for common queries
+            try db.create(index: "job_decisions_jobId", on: "job_decisions", columns: ["jobId"])
+            try db.create(index: "job_decisions_category", on: "job_decisions", columns: ["category"])
         }
 
         return migrator
