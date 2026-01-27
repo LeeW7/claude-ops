@@ -325,6 +325,44 @@ public actor SQLitePersistenceService: PersistenceService {
         }
     }
 
+    // MARK: - Job Decisions
+
+    public func getDecisionsForJob(jobId: String) async throws -> [JobDecision] {
+        try await dbPool.read { db in
+            try JobDecisionRecord
+                .filter(JobDecisionRecord.Columns.jobId == jobId)
+                .order(JobDecisionRecord.Columns.timestamp.asc)
+                .fetchAll(db)
+                .map { $0.toJobDecision() }
+        }
+    }
+
+    public func saveDecision(_ decision: JobDecision) async throws {
+        let record = JobDecisionRecord(from: decision)
+        try await dbPool.write { db in
+            try record.save(db)
+        }
+    }
+
+    public func saveDecisions(_ decisions: [JobDecision]) async throws {
+        guard !decisions.isEmpty else { return }
+
+        try await dbPool.write { db in
+            for decision in decisions {
+                let record = JobDecisionRecord(from: decision)
+                try record.save(db)
+            }
+        }
+    }
+
+    public func deleteDecisionsForJob(jobId: String) async throws {
+        _ = try await dbPool.write { db in
+            try JobDecisionRecord
+                .filter(JobDecisionRecord.Columns.jobId == jobId)
+                .deleteAll(db)
+        }
+    }
+
     // MARK: - Migration from jobs.json
 
     private func migrateFromJobsJson() async throws {

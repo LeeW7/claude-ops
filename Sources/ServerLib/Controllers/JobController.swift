@@ -20,6 +20,9 @@ struct JobController: RouteCollection {
         routes.post("jobs", ":id", "approve", use: approveJob)
         routes.post("jobs", ":id", "reject", use: rejectJob)
 
+        // Job decisions
+        routes.get("jobs", ":id", "decisions", use: getJobDecisions)
+
         // Legacy endpoints (for backward compatibility)
         routes.post("approve", use: approveLegacy)
         routes.post("reject", use: rejectLegacy)
@@ -119,7 +122,26 @@ struct JobController: RouteCollection {
         }
 
         let logs = await req.application.claudeService.readLog(path: job.logPath)
-        return LogResponse(from: job, logs: logs)
+
+        // Include decisions if available
+        let decisions = try? await req.application.persistenceService.getDecisionsForJob(jobId: job.id)
+
+        return LogResponse(from: job, logs: logs, decisions: decisions)
+    }
+
+    /// Get decisions extracted from a job's output
+    @Sendable
+    func getJobDecisions(req: Request) async throws -> [JobDecision] {
+        guard let requestId = req.parameters.get("id") else {
+            throw Abort(.badRequest, reason: "Job ID required")
+        }
+
+        // Try exact match first, then fuzzy match
+        guard let job = try await req.application.persistenceService.getJobFuzzy(id: requestId) else {
+            throw Abort(.notFound, reason: "Job not found")
+        }
+
+        return try await req.application.persistenceService.getDecisionsForJob(jobId: job.id)
     }
 
     /// Approve a waiting job

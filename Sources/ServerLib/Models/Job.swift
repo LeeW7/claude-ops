@@ -261,11 +261,13 @@ public struct LogResponse: Content {
     public let issue_id: String
     public let logs: String
     public let status: String
+    public let decisions: [JobDecision]?
 
-    public init(from job: Job, logs: String) {
+    public init(from job: Job, logs: String, decisions: [JobDecision]? = nil) {
         self.issueId = job.id
         self.issue_id = job.id
         self.logs = logs
         self.status = job.status.rawValue
+        self.decisions = decisions
     }
 }
