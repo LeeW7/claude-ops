@@ -363,6 +363,32 @@ public actor SQLitePersistenceService: PersistenceService {
         }
     }
 
+    // MARK: - Confidence Assessments
+
+    public func getConfidenceForJob(jobId: String) async throws -> ConfidenceAssessment? {
+        try await dbPool.read { db in
+            try ConfidenceAssessmentRecord
+                .filter(ConfidenceAssessmentRecord.Columns.jobId == jobId)
+                .fetchOne(db)?
+                .toConfidenceAssessment()
+        }
+    }
+
+    public func saveConfidence(_ confidence: ConfidenceAssessment) async throws {
+        let record = ConfidenceAssessmentRecord(from: confidence)
+        try await dbPool.write { db in
+            try record.save(db)
+        }
+    }
+
+    public func deleteConfidenceForJob(jobId: String) async throws {
+        _ = try await dbPool.write { db in
+            try ConfidenceAssessmentRecord
+                .filter(ConfidenceAssessmentRecord.Columns.jobId == jobId)
+                .deleteAll(db)
+        }
+    }
+
     // MARK: - Migration from jobs.json
 
     private func migrateFromJobsJson() async throws {

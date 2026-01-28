@@ -403,6 +403,84 @@ public struct DecisionExtractor {
         return cleaned
     }
 
+    // MARK: - Confidence Extraction
+
+    /// Extract confidence assessment from log content
+    public static func extractConfidence(from logContent: String, jobId: String) -> ConfidenceAssessment? {
+        // First, reconstruct plain text from streaming JSON format
+        let text = reconstructTextFromStreamingLog(logContent)
+
+        // Normalize escaped newlines
+        let normalizedText = text
+            .replacingOccurrences(of: "\\\\n", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
+
+        // Pattern: <<<CONFIDENCE>>> ... <<<END_CONFIDENCE>>> blocks
+        // SCORE: [0-100 integer OR 0.0-1.0 decimal]
+        // ASSESSMENT: [brief assessment]
+        // REASONING: [why this score]
+        // RISKS: [optional risks]
+        // Accept both integer (85) and decimal (0.85) scores
+        let blockPattern = #"<<<CONFIDENCE>>>\s*SCORE:\s*([\d.]+)\s*ASSESSMENT:\s*(.+?)\s*REASONING:\s*(.+?)\s*(?:RISKS:\s*(.+?)\s*)?<<<END_CONFIDENCE>>>"#
+
+        guard let regex = try? NSRegularExpression(pattern: blockPattern, options: [.dotMatchesLineSeparators]) else {
+            return nil
+        }
+
+        let range = NSRange(normalizedText.startIndex..<normalizedText.endIndex, in: normalizedText)
+        guard let match = regex.firstMatch(in: normalizedText, options: [], range: range),
+              let scoreRange = Range(match.range(at: 1), in: normalizedText),
+              let assessmentRange = Range(match.range(at: 2), in: normalizedText),
+              let reasoningRange = Range(match.range(at: 3), in: normalizedText) else {
+            return nil
+        }
+
+        let scoreStr = String(normalizedText[scoreRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Parse score - handle both 0-100 integer and 0.0-1.0 decimal formats
+        var score: Int
+        if let intScore = Int(scoreStr) {
+            // Integer score (0-100)
+            score = intScore
+        } else if let doubleScore = Double(scoreStr) {
+            // Decimal score (0.0-1.0) - convert to 0-100
+            if doubleScore <= 1.0 {
+                score = Int(doubleScore * 100)
+            } else {
+                score = Int(doubleScore)
+            }
+        } else {
+            return nil
+        }
+
+        let assessment = String(normalizedText[assessmentRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let reasoning = String(normalizedText[reasoningRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Extract optional risks
+        var risks: [String]?
+        if match.range(at: 4).location != NSNotFound,
+           let risksRange = Range(match.range(at: 4), in: normalizedText) {
+            let risksText = String(normalizedText[risksRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !risksText.isEmpty && !risksText.lowercased().hasPrefix("none") {
+                // Split on semicolons
+                risks = risksText
+                    .components(separatedBy: ";")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            }
+        }
+
+        return ConfidenceAssessment(
+            jobId: jobId,
+            score: score,
+            assessment: assessment,
+            reasoning: reasoning,
+            risks: risks
+        )
+    }
+
+    // MARK: - Private Helpers
+
     /// Reconstruct plain text from streaming JSON log format
     /// Handles logs that contain streaming events like:
     /// {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"..."}}}

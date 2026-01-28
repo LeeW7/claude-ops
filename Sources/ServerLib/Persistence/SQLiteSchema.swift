@@ -373,6 +373,66 @@ struct JobDecisionRecord: Codable, FetchableRecord, PersistableRecord {
     }
 }
 
+// MARK: - Confidence Assessment Record
+
+/// SQLite record for ConfidenceAssessment model
+struct ConfidenceAssessmentRecord: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "confidence_assessments"
+
+    var id: String
+    var jobId: String
+    var score: Int
+    var assessment: String
+    var reasoning: String
+    var risksJson: String?  // JSON array
+    var timestamp: Date
+
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let jobId = Column(CodingKeys.jobId)
+        static let score = Column(CodingKeys.score)
+        static let assessment = Column(CodingKeys.assessment)
+        static let reasoning = Column(CodingKeys.reasoning)
+        static let risksJson = Column(CodingKeys.risksJson)
+        static let timestamp = Column(CodingKeys.timestamp)
+    }
+
+    /// Convert from ConfidenceAssessment model
+    init(from confidence: ConfidenceAssessment) {
+        self.id = confidence.id
+        self.jobId = confidence.jobId
+        self.score = confidence.score
+        self.assessment = confidence.assessment
+        self.reasoning = confidence.reasoning
+        self.timestamp = confidence.timestamp
+
+        // Encode risks as JSON
+        if let risks = confidence.risks {
+            self.risksJson = try? String(data: JSONEncoder().encode(risks), encoding: .utf8)
+        }
+    }
+
+    /// Convert to ConfidenceAssessment model
+    func toConfidenceAssessment() -> ConfidenceAssessment {
+        // Decode risks from JSON
+        var risks: [String]?
+        if let json = risksJson,
+           let data = json.data(using: .utf8) {
+            risks = try? JSONDecoder().decode([String].self, from: data)
+        }
+
+        return ConfidenceAssessment(
+            id: id,
+            jobId: jobId,
+            score: score,
+            assessment: assessment,
+            reasoning: reasoning,
+            risks: risks,
+            timestamp: timestamp
+        )
+    }
+}
+
 // MARK: - Migrations
 
 /// Database migrations for SQLite schema
@@ -496,6 +556,23 @@ struct SQLiteMigrations {
             // Indexes for common queries
             try db.create(index: "job_decisions_jobId", on: "job_decisions", columns: ["jobId"])
             try db.create(index: "job_decisions_category", on: "job_decisions", columns: ["category"])
+        }
+
+        // Migration v7: Create confidence_assessments table
+        migrator.registerMigration("v7_create_confidence_assessments") { db in
+            try db.create(table: "confidence_assessments") { t in
+                t.column("id", .text).primaryKey()
+                t.column("jobId", .text).notNull()
+                    .references("jobs", onDelete: .cascade)
+                t.column("score", .integer).notNull()
+                t.column("assessment", .text).notNull()
+                t.column("reasoning", .text).notNull()
+                t.column("risksJson", .text)  // JSON array
+                t.column("timestamp", .datetime).notNull()
+            }
+
+            // Index for querying by job
+            try db.create(index: "confidence_assessments_jobId", on: "confidence_assessments", columns: ["jobId"])
         }
 
         return migrator

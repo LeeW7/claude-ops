@@ -472,6 +472,21 @@ public actor FirestoreService: PersistenceService {
         // No-op for Firestore backend
     }
 
+    // MARK: - Confidence Assessments (Local only - not synced to Firestore)
+
+    public func getConfidenceForJob(jobId: String) async throws -> ConfidenceAssessment? {
+        // Confidence assessments not supported in Firestore backend
+        return nil
+    }
+
+    public func saveConfidence(_ confidence: ConfidenceAssessment) async throws {
+        // No-op for Firestore backend
+    }
+
+    public func deleteConfidenceForJob(jobId: String) async throws {
+        // No-op for Firestore backend
+    }
+
     // MARK: - Analytics (Phase 5)
 
     /// Record job cost for analytics
