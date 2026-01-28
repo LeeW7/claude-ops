@@ -112,6 +112,11 @@ public struct DecisionExtractor {
     private static func extractStructuredDecisions(from text: String, jobId: String) -> [JobDecision] {
         var decisions: [JobDecision] = []
 
+        // Normalize escaped newlines (logs often have \\n instead of actual newlines)
+        let normalizedText = text
+            .replacingOccurrences(of: "\\\\n", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
+
         // Primary pattern: <<<DECISION>>> ... <<<END_DECISION>>> blocks
         // ACTION: [action]
         // REASONING: [reason]
@@ -120,22 +125,22 @@ public struct DecisionExtractor {
         let blockPattern = #"<<<DECISION>>>\s*ACTION:\s*(.+?)\s*REASONING:\s*(.+?)\s*(?:ALTERNATIVES:\s*(.+?)\s*)?(?:CATEGORY:\s*(\w+)\s*)?<<<END_DECISION>>>"#
 
         if let regex = try? NSRegularExpression(pattern: blockPattern, options: [.dotMatchesLineSeparators]) {
-            let range = NSRange(text.startIndex..<text.endIndex, in: text)
-            regex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+            let range = NSRange(normalizedText.startIndex..<normalizedText.endIndex, in: normalizedText)
+            regex.enumerateMatches(in: normalizedText, options: [], range: range) { match, _, _ in
                 guard let match = match,
-                      let actionRange = Range(match.range(at: 1), in: text),
-                      let reasonRange = Range(match.range(at: 2), in: text) else {
+                      let actionRange = Range(match.range(at: 1), in: normalizedText),
+                      let reasonRange = Range(match.range(at: 2), in: normalizedText) else {
                     return
                 }
 
-                let action = String(text[actionRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-                let reasoning = String(text[reasonRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let action = String(normalizedText[actionRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let reasoning = String(normalizedText[reasonRange]).trimmingCharacters(in: .whitespacesAndNewlines)
 
                 // Extract optional alternatives
                 var alternatives: [String]?
                 if match.range(at: 3).location != NSNotFound,
-                   let altRange = Range(match.range(at: 3), in: text) {
-                    let altText = String(text[altRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                   let altRange = Range(match.range(at: 3), in: normalizedText) {
+                    let altText = String(normalizedText[altRange]).trimmingCharacters(in: .whitespacesAndNewlines)
                     if !altText.isEmpty && !altText.lowercased().hasPrefix("none") {
                         // Split on semicolons (alternatives often contain commas in descriptions)
                         alternatives = altText
@@ -148,8 +153,8 @@ public struct DecisionExtractor {
                 // Extract optional category
                 var category: DecisionCategory = .other
                 if match.range(at: 4).location != NSNotFound,
-                   let catRange = Range(match.range(at: 4), in: text) {
-                    let catText = String(text[catRange]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                   let catRange = Range(match.range(at: 4), in: normalizedText) {
+                    let catText = String(normalizedText[catRange]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                     category = DecisionCategory(rawValue: catText) ?? categorizeDecision(action: action, reasoning: reasoning)
                 } else {
                     category = categorizeDecision(action: action, reasoning: reasoning)
@@ -428,6 +433,16 @@ public struct DecisionExtractor {
                let deltaType = delta["type"] as? String, deltaType == "text_delta",
                let text = delta["text"] as? String {
                 fullText += text
+                continue
+            }
+
+            // Handle stream_event with input_json_delta (tool inputs like bash commands)
+            if let eventType = json["type"] as? String, eventType == "stream_event",
+               let event = json["event"] as? [String: Any],
+               let delta = event["delta"] as? [String: Any],
+               let deltaType = delta["type"] as? String, deltaType == "input_json_delta",
+               let partialJson = delta["partial_json"] as? String {
+                fullText += partialJson
                 continue
             }
 
