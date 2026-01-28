@@ -436,6 +436,16 @@ public struct DecisionExtractor {
                 continue
             }
 
+            // Handle stream_event with input_json_delta (tool inputs like bash commands)
+            if let eventType = json["type"] as? String, eventType == "stream_event",
+               let event = json["event"] as? [String: Any],
+               let delta = event["delta"] as? [String: Any],
+               let deltaType = delta["type"] as? String, deltaType == "input_json_delta",
+               let partialJson = delta["partial_json"] as? String {
+                fullText += partialJson
+                continue
+            }
+
             // Handle content_block_delta directly (some formats)
             if let eventType = json["type"] as? String, eventType == "content_block_delta",
                let delta = json["delta"] as? [String: Any],
