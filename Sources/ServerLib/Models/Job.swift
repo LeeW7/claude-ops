@@ -228,8 +228,9 @@ public struct JobResponse: Content {
     public let issue_num: Int
     public let logs: [String]?
     public let decisions: [JobDecision]?
+    public let confidence: ConfidenceAssessment?
 
-    public init(from job: Job, logs: [String]? = [], decisions: [JobDecision]? = nil) {
+    public init(from job: Job, logs: [String]? = [], decisions: [JobDecision]? = nil, confidence: ConfidenceAssessment? = nil) {
         self.issueId = job.id
         self.issue_id = job.id
         self.status = job.status.rawValue
@@ -241,6 +242,7 @@ public struct JobResponse: Content {
         self.issue_num = job.issueNum
         self.logs = logs
         self.decisions = decisions
+        self.confidence = confidence
     }
 }
 
@@ -264,12 +266,14 @@ public struct LogResponse: Content {
     public let logs: String
     public let status: String
     public let decisions: [JobDecision]?
+    public let confidence: ConfidenceAssessment?
 
-    public init(from job: Job, logs: String, decisions: [JobDecision]? = nil) {
+    public init(from job: Job, logs: String, decisions: [JobDecision]? = nil, confidence: ConfidenceAssessment? = nil) {
         self.issueId = job.id
         self.issue_id = job.id
         self.logs = logs
         self.status = job.status.rawValue
         self.decisions = decisions
+        self.confidence = confidence
     }
 }

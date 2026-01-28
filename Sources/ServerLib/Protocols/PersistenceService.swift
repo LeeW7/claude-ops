@@ -104,4 +104,15 @@ public protocol PersistenceService: Actor {
 
     /// Delete all decisions for a job
     func deleteDecisionsForJob(jobId: String) async throws
+
+    // MARK: - Confidence Assessments
+
+    /// Get confidence assessment for a job (only one per job)
+    func getConfidenceForJob(jobId: String) async throws -> ConfidenceAssessment?
+
+    /// Save a confidence assessment
+    func saveConfidence(_ confidence: ConfidenceAssessment) async throws
+
+    /// Delete confidence assessment for a job
+    func deleteConfidenceForJob(jobId: String) async throws
 }
