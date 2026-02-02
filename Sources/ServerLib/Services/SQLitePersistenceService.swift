@@ -389,6 +389,61 @@ public actor SQLitePersistenceService: PersistenceService {
         }
     }
 
+    // MARK: - Preview Deployments
+
+    public func getPreviewDeployment(repo: String, issueNum: Int) async throws -> PreviewDeployment? {
+        try await dbPool.read { db in
+            try PreviewDeploymentRecord
+                .filter(PreviewDeploymentRecord.Columns.repo == repo)
+                .filter(PreviewDeploymentRecord.Columns.issueNum == issueNum)
+                .fetchOne(db)?
+                .toPreviewDeployment()
+        }
+    }
+
+    public func savePreviewDeployment(_ deployment: PreviewDeployment) async throws {
+        let record = PreviewDeploymentRecord(from: deployment)
+        try await dbPool.write { db in
+            try record.save(db)
+        }
+    }
+
+    public func deletePreviewDeployment(issueKey: String) async throws {
+        _ = try await dbPool.write { db in
+            try PreviewDeploymentRecord
+                .filter(PreviewDeploymentRecord.Columns.issueKey == issueKey)
+                .deleteAll(db)
+        }
+    }
+
+    // MARK: - Test Results
+
+    public func getTestResults(repo: String, issueNum: Int) async throws -> [TestResult] {
+        try await dbPool.read { db in
+            try TestResultRecord
+                .filter(TestResultRecord.Columns.repo == repo)
+                .filter(TestResultRecord.Columns.issueNum == issueNum)
+                .order(TestResultRecord.Columns.timestamp.desc)
+                .fetchAll(db)
+                .map { $0.toTestResult() }
+        }
+    }
+
+    public func saveTestResult(_ result: TestResult) async throws {
+        let record = TestResultRecord(from: result)
+        try await dbPool.write { db in
+            try record.save(db)
+        }
+    }
+
+    public func deleteTestResults(issueKey: String) async throws {
+        _ = try await dbPool.write { db in
+            try TestResultRecord
+                .filter(TestResultRecord.Columns.issueKey == issueKey)
+                .deleteAll(db)
+        }
+    }
+
     // MARK: - Migration from jobs.json
 
     private func migrateFromJobsJson() async throws {

@@ -116,6 +116,46 @@ public final class WebSocketManager: Sendable {
         }
     }
 
+    /// Broadcast a preview deployment update to all global subscribers
+    public func broadcastPreviewUpdate(_ deployment: PreviewDeployment) {
+        let event = PreviewEvent(
+            type: .previewStatusChanged,
+            timestamp: Date(),
+            preview: PreviewEventData(from: deployment)
+        )
+        broadcastPreviewEvent(event)
+    }
+
+    /// Broadcast a test results update to all global subscribers
+    public func broadcastTestResultsUpdate(_ result: TestResult) {
+        let event = PreviewEvent(
+            type: .testResultsUpdated,
+            timestamp: Date(),
+            testResult: TestResultEventData(from: result)
+        )
+        broadcastPreviewEvent(event)
+    }
+
+    /// Internal broadcast for preview events
+    private func broadcastPreviewEvent(_ event: PreviewEvent) {
+        let clients = connections.withLockedValue { dict in
+            dict[Self.globalChannel] ?? []
+        }
+
+        guard !clients.isEmpty else { return }
+
+        do {
+            let data = try JSONEncoder().encode(event)
+            let text = String(data: data, encoding: .utf8) ?? "{}"
+
+            for client in clients {
+                client.send(text)
+            }
+        } catch {
+            // Silently fail - encoding error
+        }
+    }
+
     /// Get count of global subscribers
     public func globalClientCount() -> Int {
         return clientCount(forJob: Self.globalChannel)
@@ -284,6 +324,8 @@ public enum JobEventType: String, Codable, Sendable {
     case jobStatusChanged   // Status transition (running, blocked, etc.)
     case jobCompleted       // Job finished successfully
     case jobFailed          // Job errored
+    case previewStatusChanged   // Preview deployment status changed
+    case testResultsUpdated     // New test results available
 }
 
 /// Minimal job data for events (avoid sending full job object)
@@ -324,5 +366,102 @@ public struct JobCostData: Codable, Sendable {
         self.totalUsd = totalUsd
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
+    }
+}
+
+// MARK: - Preview Events
+
+/// Events for preview deployment and test result updates
+public struct PreviewEvent: Codable, Sendable {
+    public let type: JobEventType
+    public let timestamp: Date
+    public let preview: PreviewEventData?
+    public let testResult: TestResultEventData?
+
+    public init(
+        type: JobEventType,
+        timestamp: Date,
+        preview: PreviewEventData? = nil,
+        testResult: TestResultEventData? = nil
+    ) {
+        self.type = type
+        self.timestamp = timestamp
+        self.preview = preview
+        self.testResult = testResult
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case timestamp
+        case preview
+        case testResult = "test_result"
+    }
+}
+
+/// Minimal preview data for events
+public struct PreviewEventData: Codable, Sendable {
+    public let id: String
+    public let issueKey: String
+    public let repo: String
+    public let issueNum: Int
+    public let status: String
+    public let previewUrl: String?
+    public let errorMessage: String?
+
+    public init(from deployment: PreviewDeployment) {
+        self.id = deployment.id
+        self.issueKey = deployment.issueKey
+        self.repo = deployment.repo
+        self.issueNum = deployment.issueNum
+        self.status = deployment.status.rawValue
+        self.previewUrl = deployment.previewUrl
+        self.errorMessage = deployment.errorMessage
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case issueKey = "issue_key"
+        case repo
+        case issueNum = "issue_num"
+        case status
+        case previewUrl = "preview_url"
+        case errorMessage = "error_message"
+    }
+}
+
+/// Minimal test result data for events
+public struct TestResultEventData: Codable, Sendable {
+    public let id: String
+    public let issueKey: String
+    public let repo: String
+    public let issueNum: Int
+    public let testSuite: String
+    public let passed: Int
+    public let failed: Int
+    public let skipped: Int
+    public let allPassed: Bool
+
+    public init(from result: TestResult) {
+        self.id = result.id
+        self.issueKey = result.issueKey
+        self.repo = result.repo
+        self.issueNum = result.issueNum
+        self.testSuite = result.testSuite
+        self.passed = result.passedCount
+        self.failed = result.failedCount
+        self.skipped = result.skippedCount
+        self.allPassed = result.allPassed
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case issueKey = "issue_key"
+        case repo
+        case issueNum = "issue_num"
+        case testSuite = "test_suite"
+        case passed
+        case failed
+        case skipped
+        case allPassed = "all_passed"
     }
 }

@@ -115,4 +115,26 @@ public protocol PersistenceService: Actor {
 
     /// Delete confidence assessment for a job
     func deleteConfidenceForJob(jobId: String) async throws
+
+    // MARK: - Preview Deployments
+
+    /// Get preview deployment for an issue
+    func getPreviewDeployment(repo: String, issueNum: Int) async throws -> PreviewDeployment?
+
+    /// Save/update a preview deployment
+    func savePreviewDeployment(_ deployment: PreviewDeployment) async throws
+
+    /// Delete a preview deployment by issue key
+    func deletePreviewDeployment(issueKey: String) async throws
+
+    // MARK: - Test Results
+
+    /// Get all test results for an issue (most recent first)
+    func getTestResults(repo: String, issueNum: Int) async throws -> [TestResult]
+
+    /// Save a test result
+    func saveTestResult(_ result: TestResult) async throws
+
+    /// Delete all test results for an issue
+    func deleteTestResults(issueKey: String) async throws
 }

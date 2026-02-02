@@ -52,6 +52,10 @@ public func configure(_ app: Application) async throws {
     let quickSessionService = QuickSessionService(app: app)
     app.quickSessionService = quickSessionService
 
+    // Initialize preview-related services
+    app.projectDetectionService = ProjectDetectionService()
+    app.previewService = PreviewService()
+
     // Load repo map
     let repoMapPath = app.directory.workingDirectory + "repo_map.json"
     do {
@@ -180,6 +184,14 @@ struct QuickSessionServiceKey: StorageKey {
     typealias Value = QuickSessionService
 }
 
+struct ProjectDetectionServiceKey: StorageKey {
+    typealias Value = ProjectDetectionService
+}
+
+struct PreviewServiceKey: StorageKey {
+    typealias Value = PreviewService
+}
+
 public extension Application {
     var persistenceService: any PersistenceService {
         get { storage[PersistenceServiceKey.self]! }
@@ -229,5 +241,15 @@ public extension Application {
     var quickSessionService: QuickSessionService {
         get { storage[QuickSessionServiceKey.self]! }
         set { storage[QuickSessionServiceKey.self] = newValue }
+    }
+
+    var projectDetectionService: ProjectDetectionService {
+        get { storage[ProjectDetectionServiceKey.self]! }
+        set { storage[ProjectDetectionServiceKey.self] = newValue }
+    }
+
+    var previewService: PreviewService {
+        get { storage[PreviewServiceKey.self]! }
+        set { storage[PreviewServiceKey.self] = newValue }
     }
 }
