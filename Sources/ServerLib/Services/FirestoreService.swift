@@ -487,6 +487,36 @@ public actor FirestoreService: PersistenceService {
         // No-op for Firestore backend
     }
 
+    // MARK: - Preview Deployments (Local only - not synced to Firestore)
+
+    public func getPreviewDeployment(repo: String, issueNum: Int) async throws -> PreviewDeployment? {
+        // Preview deployments not supported in Firestore backend
+        return nil
+    }
+
+    public func savePreviewDeployment(_ deployment: PreviewDeployment) async throws {
+        // No-op for Firestore backend
+    }
+
+    public func deletePreviewDeployment(issueKey: String) async throws {
+        // No-op for Firestore backend
+    }
+
+    // MARK: - Test Results (Local only - not synced to Firestore)
+
+    public func getTestResults(repo: String, issueNum: Int) async throws -> [TestResult] {
+        // Test results not supported in Firestore backend
+        return []
+    }
+
+    public func saveTestResult(_ result: TestResult) async throws {
+        // No-op for Firestore backend
+    }
+
+    public func deleteTestResults(issueKey: String) async throws {
+        // No-op for Firestore backend
+    }
+
     // MARK: - Analytics (Phase 5)
 
     /// Record job cost for analytics

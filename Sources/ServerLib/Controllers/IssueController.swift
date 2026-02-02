@@ -19,6 +19,11 @@ struct IssueController: RouteCollection {
         issues.post(":owner", ":repo", ":num", "close", use: closeIssue)
         issues.get(":owner", ":repo", ":num", "pr", use: getPRDetails)
         issues.get(":owner", ":repo", ":num", "costs", use: getIssueCosts)
+
+        // Preview validation routes
+        issues.get(":owner", ":repo", ":num", "preview", use: getValidationState)
+        issues.post(":owner", ":repo", ":num", "preview", use: triggerPreview)
+        issues.get(":owner", ":repo", ":num", "tests", use: getTestResults)
     }
 
     /// Create a new GitHub issue
@@ -478,6 +483,85 @@ struct IssueController: RouteCollection {
             totalCacheReadTokens: totalCacheReadTokens,
             totalCacheWriteTokens: totalCacheWriteTokens
         )
+    }
+
+    // MARK: - Preview Validation
+
+    /// Get validation state for an issue (preview + test results)
+    @Sendable
+    func getValidationState(req: Request) async throws -> ValidationState {
+        let (repo, issueNum) = try parseRepoAndIssue(req)
+
+        // Get preview deployment and test results
+        let preview = try await req.application.persistenceService.getPreviewDeployment(repo: repo, issueNum: issueNum)
+        let testResults = try await req.application.persistenceService.getTestResults(repo: repo, issueNum: issueNum)
+
+        return ValidationState(
+            repo: repo,
+            issueNum: issueNum,
+            preview: preview,
+            testResults: testResults
+        )
+    }
+
+    /// Trigger a preview deployment for an issue
+    @Sendable
+    func triggerPreview(req: Request) async throws -> TriggerPreviewResponse {
+        let (repo, issueNum) = try parseRepoAndIssue(req)
+        let body = try? req.content.decode(TriggerPreviewRequest.self)
+
+        guard let repoMap = req.application.repoMap else {
+            throw Abort(.internalServerError, reason: "Repo map not configured")
+        }
+
+        guard let localPath = repoMap.getPath(for: repo) else {
+            throw Abort(.badRequest, reason: "Repository \(repo) not found in repo_map.json")
+        }
+
+        // Detect project type
+        let projectType = req.application.projectDetectionService.detectProjectType(at: localPath)
+
+        // Check if project can be deployed
+        let capabilities = req.application.projectDetectionService.getPreviewCapabilities(for: projectType)
+        guard capabilities.canDeploy else {
+            throw Abort(.badRequest, reason: "Project type \(projectType.rawValue) cannot be deployed for preview. \(capabilities.notes)")
+        }
+
+        // Create pending deployment record
+        let deployment = req.application.previewService.createPendingDeployment(
+            repo: repo,
+            issueNum: issueNum,
+            projectType: projectType,
+            commitSha: body?.commitSha
+        )
+
+        // Save to database
+        try await req.application.persistenceService.savePreviewDeployment(deployment)
+
+        // Trigger deployment via GitHub Actions
+        try await req.application.previewService.triggerDeployment(
+            repo: repo,
+            issueNum: issueNum,
+            projectType: projectType,
+            commitSha: body?.commitSha,
+            logger: req.logger
+        )
+
+        // Broadcast update
+        req.application.webSocketManager.broadcastPreviewUpdate(deployment)
+
+        return TriggerPreviewResponse(
+            status: "triggered",
+            deploymentId: deployment.id,
+            message: "Preview deployment triggered for \(repo)#\(issueNum)"
+        )
+    }
+
+    /// Get test results for an issue
+    @Sendable
+    func getTestResults(req: Request) async throws -> [TestResult] {
+        let (repo, issueNum) = try parseRepoAndIssue(req)
+        return try await req.application.persistenceService.getTestResults(repo: repo, issueNum: issueNum)
     }
 
     /// Parse repo and issue number from path parameters

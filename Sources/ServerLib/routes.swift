@@ -15,4 +15,5 @@ func routes(_ app: Application) throws {
     try app.register(collection: WebSocketController())
     try app.register(collection: QuickSessionController())
     try app.register(collection: HiddenIssueController())
+    try app.register(collection: PreviewCallbackHandler())
 }

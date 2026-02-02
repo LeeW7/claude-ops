@@ -433,6 +433,163 @@ struct ConfidenceAssessmentRecord: Codable, FetchableRecord, PersistableRecord {
     }
 }
 
+// MARK: - Preview Deployment Record
+
+/// SQLite record for PreviewDeployment model
+struct PreviewDeploymentRecord: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "preview_deployments"
+
+    var id: String
+    var issueKey: String
+    var repo: String
+    var issueNum: Int
+    var projectType: String
+    var status: String
+    var previewUrl: String?
+    var logsUrl: String?
+    var commitSha: String?
+    var errorMessage: String?
+    var createdAt: Date
+    var updatedAt: Date
+    var expiresAt: Date?
+
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let issueKey = Column(CodingKeys.issueKey)
+        static let repo = Column(CodingKeys.repo)
+        static let issueNum = Column(CodingKeys.issueNum)
+        static let projectType = Column(CodingKeys.projectType)
+        static let status = Column(CodingKeys.status)
+        static let previewUrl = Column(CodingKeys.previewUrl)
+        static let logsUrl = Column(CodingKeys.logsUrl)
+        static let commitSha = Column(CodingKeys.commitSha)
+        static let errorMessage = Column(CodingKeys.errorMessage)
+        static let createdAt = Column(CodingKeys.createdAt)
+        static let updatedAt = Column(CodingKeys.updatedAt)
+        static let expiresAt = Column(CodingKeys.expiresAt)
+    }
+
+    /// Convert from PreviewDeployment model
+    init(from deployment: PreviewDeployment) {
+        self.id = deployment.id
+        self.issueKey = deployment.issueKey
+        self.repo = deployment.repo
+        self.issueNum = deployment.issueNum
+        self.projectType = deployment.projectType.rawValue
+        self.status = deployment.status.rawValue
+        self.previewUrl = deployment.previewUrl
+        self.logsUrl = deployment.logsUrl
+        self.commitSha = deployment.commitSha
+        self.errorMessage = deployment.errorMessage
+        self.createdAt = deployment.createdAt
+        self.updatedAt = deployment.updatedAt
+        self.expiresAt = deployment.expiresAt
+    }
+
+    /// Convert to PreviewDeployment model
+    func toPreviewDeployment() -> PreviewDeployment {
+        PreviewDeployment(
+            id: id,
+            issueKey: issueKey,
+            repo: repo,
+            issueNum: issueNum,
+            projectType: ProjectType(rawValue: projectType) ?? .unknown,
+            status: PreviewStatus(rawValue: status) ?? .pending,
+            previewUrl: previewUrl,
+            logsUrl: logsUrl,
+            commitSha: commitSha,
+            errorMessage: errorMessage,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            expiresAt: expiresAt
+        )
+    }
+}
+
+// MARK: - Test Result Record
+
+/// SQLite record for TestResult model
+struct TestResultRecord: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "test_results"
+
+    var id: String
+    var issueKey: String
+    var repo: String
+    var issueNum: Int
+    var testSuite: String
+    var passedCount: Int
+    var failedCount: Int
+    var skippedCount: Int
+    var duration: Double?
+    var coverage: Double?
+    var failuresJson: String?  // JSON array of TestFailure
+    var timestamp: Date
+    var commitSha: String?
+
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let issueKey = Column(CodingKeys.issueKey)
+        static let repo = Column(CodingKeys.repo)
+        static let issueNum = Column(CodingKeys.issueNum)
+        static let testSuite = Column(CodingKeys.testSuite)
+        static let passedCount = Column(CodingKeys.passedCount)
+        static let failedCount = Column(CodingKeys.failedCount)
+        static let skippedCount = Column(CodingKeys.skippedCount)
+        static let duration = Column(CodingKeys.duration)
+        static let coverage = Column(CodingKeys.coverage)
+        static let failuresJson = Column(CodingKeys.failuresJson)
+        static let timestamp = Column(CodingKeys.timestamp)
+        static let commitSha = Column(CodingKeys.commitSha)
+    }
+
+    /// Convert from TestResult model
+    init(from result: TestResult) {
+        self.id = result.id
+        self.issueKey = result.issueKey
+        self.repo = result.repo
+        self.issueNum = result.issueNum
+        self.testSuite = result.testSuite
+        self.passedCount = result.passedCount
+        self.failedCount = result.failedCount
+        self.skippedCount = result.skippedCount
+        self.duration = result.duration
+        self.coverage = result.coverage
+        self.timestamp = result.timestamp
+        self.commitSha = result.commitSha
+
+        // Encode failures as JSON
+        if !result.failures.isEmpty {
+            self.failuresJson = try? String(data: JSONEncoder().encode(result.failures), encoding: .utf8)
+        }
+    }
+
+    /// Convert to TestResult model
+    func toTestResult() -> TestResult {
+        // Decode failures from JSON
+        var failures: [TestFailure] = []
+        if let json = failuresJson,
+           let data = json.data(using: .utf8) {
+            failures = (try? JSONDecoder().decode([TestFailure].self, from: data)) ?? []
+        }
+
+        return TestResult(
+            id: id,
+            issueKey: issueKey,
+            repo: repo,
+            issueNum: issueNum,
+            testSuite: testSuite,
+            passedCount: passedCount,
+            failedCount: failedCount,
+            skippedCount: skippedCount,
+            duration: duration,
+            coverage: coverage,
+            failures: failures,
+            timestamp: timestamp,
+            commitSha: commitSha
+        )
+    }
+}
+
 // MARK: - Migrations
 
 /// Database migrations for SQLite schema
@@ -573,6 +730,52 @@ struct SQLiteMigrations {
 
             // Index for querying by job
             try db.create(index: "confidence_assessments_jobId", on: "confidence_assessments", columns: ["jobId"])
+        }
+
+        // Migration v8: Create preview_deployments table
+        migrator.registerMigration("v8_create_preview_deployments") { db in
+            try db.create(table: "preview_deployments") { t in
+                t.column("id", .text).primaryKey()
+                t.column("issueKey", .text).notNull().unique()
+                t.column("repo", .text).notNull()
+                t.column("issueNum", .integer).notNull()
+                t.column("projectType", .text).notNull()
+                t.column("status", .text).notNull()
+                t.column("previewUrl", .text)
+                t.column("logsUrl", .text)
+                t.column("commitSha", .text)
+                t.column("errorMessage", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                t.column("expiresAt", .datetime)
+            }
+
+            // Indexes for common queries
+            try db.create(index: "preview_deployments_repo_issue", on: "preview_deployments", columns: ["repo", "issueNum"])
+            try db.create(index: "preview_deployments_status", on: "preview_deployments", columns: ["status"])
+        }
+
+        // Migration v9: Create test_results table
+        migrator.registerMigration("v9_create_test_results") { db in
+            try db.create(table: "test_results") { t in
+                t.column("id", .text).primaryKey()
+                t.column("issueKey", .text).notNull()
+                t.column("repo", .text).notNull()
+                t.column("issueNum", .integer).notNull()
+                t.column("testSuite", .text).notNull()
+                t.column("passedCount", .integer).notNull()
+                t.column("failedCount", .integer).notNull()
+                t.column("skippedCount", .integer).notNull()
+                t.column("duration", .double)
+                t.column("coverage", .double)
+                t.column("failuresJson", .text)  // JSON array of TestFailure
+                t.column("timestamp", .datetime).notNull()
+                t.column("commitSha", .text)
+            }
+
+            // Indexes for common queries
+            try db.create(index: "test_results_repo_issue", on: "test_results", columns: ["repo", "issueNum"])
+            try db.create(index: "test_results_timestamp", on: "test_results", columns: ["timestamp"])
         }
 
         return migrator
