@@ -13,10 +13,31 @@ public actor ClaudeService {
 
     /// Find the claude CLI executable
     private func findClaude() -> String {
+        // Check environment variable first
+        if let envPath = ProcessInfo.processInfo.environment["CLAUDE_PATH"],
+           FileManager.default.isExecutableFile(atPath: envPath) {
+            return envPath
+        }
+
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+
+        // Check for Claude desktop app installation (includes version directories)
+        let claudeAppSupport = "\(homeDir)/Library/Application Support/Claude/claude-code"
+        if let versions = try? FileManager.default.contentsOfDirectory(atPath: claudeAppSupport) {
+            // Sort versions descending to get latest
+            let sortedVersions = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+            for version in sortedVersions {
+                let path = "\(claudeAppSupport)/\(version)/claude"
+                if FileManager.default.isExecutableFile(atPath: path) {
+                    return path
+                }
+            }
+        }
+
         let paths = [
             "/opt/homebrew/bin/claude",
             "/usr/local/bin/claude",
-            "\(FileManager.default.homeDirectoryForCurrentUser.path)/.npm-global/bin/claude",
+            "\(homeDir)/.npm-global/bin/claude",
             "/usr/bin/claude"
         ]
         for path in paths {
