@@ -141,7 +141,8 @@ public actor ClaudeService {
         // --include-partial-messages to get text chunks as they arrive
         let claudePath = findClaude()
         // Use script to create pseudo-TTY (prevents buffering issues with pipes)
-        let streamingCommand = "cd \(job.localPath) && script -q /dev/null \(claudePath) '/\(job.command) \(job.issueNum)' --print --output-format stream-json --include-partial-messages --verbose --dangerously-skip-permissions"
+        // Quote the claude path to handle spaces (e.g., "Application Support")
+        let streamingCommand = "cd \"\(job.localPath)\" && script -q /dev/null \"\(claudePath)\" '/\(job.command) \(job.issueNum)' --print --output-format stream-json --include-partial-messages --verbose --dangerously-skip-permissions"
 
         // Create process with pipes for real-time output
         let process = Process()
